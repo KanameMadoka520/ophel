@@ -4,7 +4,7 @@ import { SearchIcon } from "~components/icons"
 import { useSettingsStore } from "~stores/settings-store"
 import { t } from "~utils/i18n"
 
-import { PageTitle, SettingCard, SettingRow } from "../components"
+import { PageTitle, SettingCard, SettingRow, ToggleRow } from "../components"
 
 interface GlobalSearchPageProps {
   siteId: string
@@ -23,6 +23,7 @@ const GlobalSearchPage: React.FC<GlobalSearchPageProps> = ({ siteId: _siteId }) 
   }
 
   const promptEnterBehavior = settings.globalSearch?.promptEnterBehavior || "smart"
+  const enableFuzzySearch = settings.globalSearch?.enableFuzzySearch ?? false
 
   return (
     <div>
@@ -36,6 +37,26 @@ const GlobalSearchPage: React.FC<GlobalSearchPageProps> = ({ siteId: _siteId }) 
           "Trigger: double-press Shift or Ctrl/Cmd + K",
         )}`}
       </p>
+
+      <SettingCard
+        title={getLocalizedText("globalSearchMatchingSettingsTitle", "Search Matching")}
+        description={getLocalizedText(
+          "globalSearchMatchingSettingsDesc",
+          "Configure how Search Everywhere matches search results",
+        )}>
+        <ToggleRow
+          label={getLocalizedText("globalSearchEnableFuzzySearchLabel", "Enable fuzzy search")}
+          description={getLocalizedText(
+            "globalSearchEnableFuzzySearchDesc",
+            "When enabled, Search Everywhere uses fuzzy matching for title, folder, tag, prompt content, and setting identifiers.",
+          )}
+          checked={enableFuzzySearch}
+          onChange={() =>
+            updateNestedSetting("globalSearch", "enableFuzzySearch", !enableFuzzySearch)
+          }
+          settingId="global-search-fuzzy-search"
+        />
+      </SettingCard>
 
       <SettingCard
         title={getLocalizedText("globalSearchPromptSettingsTitle", "Prompt Behavior")}

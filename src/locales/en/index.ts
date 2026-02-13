@@ -1127,6 +1127,8 @@ Please output the optimized code block directly, followed by a brief summary of 
   globalSearchCategoriesLabel: "Global search categories",
   globalSearchPageDesc: "Configure Search Everywhere behavior and interaction details",
   globalSearchTriggerHint: "Trigger: double-press Shift or Ctrl/Cmd + K",
+  globalSearchMatchingSettingsTitle: "Search Matching",
+  globalSearchMatchingSettingsDesc: "Configure how Search Everywhere matches search results",
   globalSearchPromptSettingsTitle: "Prompt Behavior",
   globalSearchPromptSettingsDesc:
     "Choose what happens when pressing Enter on a prompt result in Search Everywhere",
@@ -1135,6 +1137,11 @@ Please output the optimized code block directly, followed by a brief summary of 
     "Smart: insert directly when no variable, open variable dialog when needed; Locate only: switch to Prompts and locate the item.",
   globalSearchPromptEnterBehaviorSmart: "Smart (Recommended)",
   globalSearchPromptEnterBehaviorLocate: "Locate Only",
+  globalSearchEnableFuzzySearchLabel: "Enable fuzzy search",
+  globalSearchEnableFuzzySearchDesc:
+    "When enabled, Search Everywhere uses fuzzy matching for title, folder, tag, prompt content, and setting identifiers.",
+  globalSearchFuzzySearchToggle: "Fuzzy",
+  globalSearchFuzzySearchToggleAria: "Toggle fuzzy search",
   globalSearchFooterTips: "Enter to jump · ↑↓ to select · Tab category · Esc to close",
   globalSearchShortcutNudge: "Next time, press {shortcut} to open quickly",
   globalSearchShortcutNudgeDismiss: "Don’t remind me",
@@ -1151,6 +1158,7 @@ Please output the optimized code block directly, followed by a brief summary of 
   globalSearchMatchReasonId: "ID match",
   globalSearchMatchReasonKeyword: "Keyword match",
   globalSearchMatchReasonAlias: "Alias match",
+  globalSearchMatchReasonFuzzy: "Fuzzy match",
   globalSearchSyntaxOperatorType: "Type",
   globalSearchSyntaxOperatorFolder: "Folder",
   globalSearchSyntaxOperatorTag: "Tag",
