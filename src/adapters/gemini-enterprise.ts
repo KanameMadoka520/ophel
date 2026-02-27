@@ -891,6 +891,33 @@ export class GeminiEnterpriseAdapter extends SiteAdapter {
     editor.click()
     editor.focus()
 
+    // 第 1 步：尝试通过原生的 Paste 事件，这是欺骗复杂编辑器（ProseMirror、Draft.js）的绝佳途径
+    try {
+      const dataTransfer = new DataTransfer()
+      dataTransfer.setData("text/plain", content)
+      const pasteEvent = new ClipboardEvent("paste", {
+        bubbles: true,
+        cancelable: true,
+        clipboardData: dataTransfer,
+      })
+
+      editor.dispatchEvent(pasteEvent)
+
+      // 判断如果文本已经进去了，说明 Paste 成功了
+      if (editor.textContent?.includes(content)) {
+        editor.dispatchEvent(new Event("input", { bubbles: true }))
+        editor.dispatchEvent(new Event("change", { bubbles: true }))
+        editor.dispatchEvent(
+          new KeyboardEvent("keydown", { bubbles: true, key: " ", code: "Space" }),
+        )
+        editor.dispatchEvent(new KeyboardEvent("keyup", { bubbles: true, key: " ", code: "Space" }))
+        return true
+      }
+    } catch {
+      // 忽略 Paste 失败
+    }
+
+    // 第 2 步：常规的 DOM execCommand 降级
     try {
       // 先全选
       document.execCommand("selectAll", false, undefined)
@@ -909,15 +936,13 @@ export class GeminiEnterpriseAdapter extends SiteAdapter {
 
       p.textContent = content
 
-      // 如果完全手动改 DOM，必须要告诉框架
       if (isNewP || content) {
         editor.dispatchEvent(new Event("input", { bubbles: true }))
         editor.dispatchEvent(new Event("change", { bubbles: true }))
       }
     }
 
-    // 无论 execCommand 是否成功，Angular 的双向绑定有时不会被 execCommand 触发
-    // 特别是在 shadow DOM 的 ProseMirror 中
+    // 第 3 步：事件轰炸收尾
     const inputEvent = new InputEvent("input", {
       bubbles: true,
       cancelable: true,
@@ -926,11 +951,8 @@ export class GeminiEnterpriseAdapter extends SiteAdapter {
     })
     editor.dispatchEvent(inputEvent)
 
-    // 触发 keydown / keyup 来激活某些 "发送" 按钮的 disabled 状态监听
     editor.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, key: " ", code: "Space" }))
     editor.dispatchEvent(new KeyboardEvent("keyup", { bubbles: true, key: " ", code: "Space" }))
-
-    // 触发 Angular 特有的(或通用) focus / input 冒泡
     editor.dispatchEvent(new Event("change", { bubbles: true }))
 
     return true

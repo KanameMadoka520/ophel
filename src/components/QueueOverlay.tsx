@@ -105,15 +105,22 @@ export const QueueOverlay: React.FC<QueueOverlayProps> = ({ adapter, dispatcher 
     // 如果它挂在 .gh-root，而 .gh-root 本身是 fixed 的（占满全屏），那么 bottom/right 的表现等同于 window 视口
 
     // 下面恢复基于窗口绝对视口的计算方式（最稳定）
-    const rightPos = rect.right - 20
     const bottomPos = window.innerHeight - rect.top + 12
+
+    // 修复定位偏移 bug: 使用 left 定位，避免右侧滚动条出现/消失导致的 right 坐标跳动。
+    const overlayWidth = Math.min(420, window.innerWidth - 40)
+    let leftPos = rect.right - 20 - overlayWidth
+
+    // 如果 left 溢出屏幕左侧，强制贴着左侧边缘
+    if (leftPos < 20) leftPos = 20
+
+    // 将稳定的 left 的坐标转换为相应的 right 属性，以满足接口定义
+    const finalRight = window.innerWidth - (leftPos + overlayWidth)
 
     setPosition({
       bottom: bottomPos,
-      right: window.innerWidth - rightPos,
-      // 修复宽度无限缩小 bug: 解耦面板宽度与动态输入框宽度的强绑定关系。
-      // 我们固定最大面板宽度为 420px，如果屏幕过窄，距离两边各留出边距即可。
-      width: Math.min(420, window.innerWidth - 40),
+      right: finalRight,
+      width: overlayWidth,
     })
   }, [adapter])
 
