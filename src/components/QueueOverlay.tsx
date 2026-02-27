@@ -111,7 +111,9 @@ export const QueueOverlay: React.FC<QueueOverlayProps> = ({ adapter, dispatcher 
     setPosition({
       bottom: bottomPos,
       right: window.innerWidth - rightPos,
-      width: Math.min(420, rect.width >= 40 ? rect.width - 20 : 300),
+      // 修复宽度无限缩小 bug: 解耦面板宽度与动态输入框宽度的强绑定关系。
+      // 我们固定最大面板宽度为 420px，如果屏幕过窄，距离两边各留出边距即可。
+      width: Math.min(420, window.innerWidth - 40),
     })
   }, [adapter])
 

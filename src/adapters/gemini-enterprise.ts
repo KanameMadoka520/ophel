@@ -900,15 +900,24 @@ export class GeminiEnterpriseAdapter extends SiteAdapter {
     } catch {
       // 降级方案: 直接操作 DOM
       let p = editor.querySelector("p")
+      let isNewP = false
       if (!p) {
         p = document.createElement("p")
         editor.appendChild(p)
+        isNewP = true
       }
 
       p.textContent = content
+
+      // 如果完全手动改 DOM，必须要告诉框架
+      if (isNewP || content) {
+        editor.dispatchEvent(new Event("input", { bubbles: true }))
+        editor.dispatchEvent(new Event("change", { bubbles: true }))
+      }
     }
 
-    // 无论如何，都触发各种事件以通知 ProseMirror 更新
+    // 无论 execCommand 是否成功，Angular 的双向绑定有时不会被 execCommand 触发
+    // 特别是在 shadow DOM 的 ProseMirror 中
     const inputEvent = new InputEvent("input", {
       bubbles: true,
       cancelable: true,
@@ -916,8 +925,13 @@ export class GeminiEnterpriseAdapter extends SiteAdapter {
       data: content,
     })
     editor.dispatchEvent(inputEvent)
+
+    // 触发 keydown / keyup 来激活某些 "发送" 按钮的 disabled 状态监听
+    editor.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, key: " ", code: "Space" }))
+    editor.dispatchEvent(new KeyboardEvent("keyup", { bubbles: true, key: " ", code: "Space" }))
+
+    // 触发 Angular 特有的(或通用) focus / input 冒泡
     editor.dispatchEvent(new Event("change", { bubbles: true }))
-    editor.dispatchEvent(new KeyboardEvent("keyup", { bubbles: true }))
 
     return true
   }
