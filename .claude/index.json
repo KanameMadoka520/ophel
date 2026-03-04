@@ -1,0 +1,314 @@
+{
+  "version": "1.0.0",
+  "timestamp": "2026-03-04T10:54:06+08:00",
+  "project": {
+    "name": "ophel",
+    "displayName": "Ophel Atlas - AI 对话结构化与导航工具",
+    "type": "browser-extension",
+    "language": "TypeScript",
+    "framework": ["React 18", "Plasmo 0.90", "Zustand 5"],
+    "packageManager": "pnpm@9.15.0",
+    "license": "GPL-3.0-only",
+    "repository": "https://github.com/urzeye/ophel.git"
+  },
+  "root": {
+    "claudeMd": "CLAUDE.md",
+    "entry": [
+      "src/contents/main.ts",
+      "src/contents/ui-entry.tsx",
+      "src/background.ts",
+      "src/popup.tsx",
+      "src/tabs/options.tsx",
+      "src/platform/userscript/entry.tsx"
+    ]
+  },
+  "modules": [
+    {
+      "path": "src/adapters",
+      "name": "站点适配器层",
+      "entry": "src/adapters/index.ts",
+      "keyFiles": [
+        "src/adapters/base.ts",
+        "src/adapters/gemini.ts",
+        "src/adapters/gemini-enterprise.ts",
+        "src/adapters/chatgpt.ts",
+        "src/adapters/claude.ts",
+        "src/adapters/grok.ts",
+        "src/adapters/aistudio.ts"
+      ],
+      "hasTests": false,
+      "coverage": "full"
+    },
+    {
+      "path": "src/core",
+      "name": "核心业务模块",
+      "entry": "src/core/modules-init.ts",
+      "keyFiles": [
+        "src/core/modules-init.ts",
+        "src/core/outline-manager.ts",
+        "src/core/conversation-manager.ts",
+        "src/core/conversation/manager.ts",
+        "src/core/theme-manager.ts",
+        "src/core/layout-manager.ts",
+        "src/core/copy-manager.ts",
+        "src/core/model-locker.ts",
+        "src/core/tab-manager.ts",
+        "src/core/scroll-lock-manager.ts",
+        "src/core/webdav-sync.ts",
+        "src/core/prompt-manager.ts",
+        "src/core/queue-dispatcher.ts",
+        "src/core/watermark-remover.ts",
+        "src/core/reading-history.ts",
+        "src/core/markdown-fixer.ts",
+        "src/core/network-monitor.ts",
+        "src/core/inline-bookmark-manager.ts",
+        "src/core/shortcut-manager.ts",
+        "src/core/user-query-markdown.ts",
+        "src/core/policy-retry-manager.ts"
+      ],
+      "hasTests": false,
+      "coverage": "full"
+    },
+    {
+      "path": "src/components",
+      "name": "React UI 组件",
+      "entry": "src/components/App.tsx",
+      "keyFiles": [
+        "src/components/App.tsx",
+        "src/components/MainPanel.tsx",
+        "src/components/OutlineTab.tsx",
+        "src/components/ConversationsTab.tsx",
+        "src/components/SettingsModal.tsx",
+        "src/components/QuickButtons.tsx",
+        "src/components/SelectedPromptBar.tsx",
+        "src/components/global-search/GlobalSearchOverlay.tsx",
+        "src/components/global-search/syntax.ts",
+        "src/components/global-search/types.ts"
+      ],
+      "subModules": ["global-search", "icons", "ui"],
+      "hasTests": false,
+      "coverage": "full"
+    },
+    {
+      "path": "src/stores",
+      "name": "Zustand 状态管理",
+      "entry": "src/stores/settings-store.ts",
+      "keyFiles": [
+        "src/stores/settings-store.ts",
+        "src/stores/conversations-store.ts",
+        "src/stores/prompts-store.ts",
+        "src/stores/folders-store.ts",
+        "src/stores/tags-store.ts",
+        "src/stores/queue-store.ts",
+        "src/stores/anchor-store.ts",
+        "src/stores/bookmarks-store.ts",
+        "src/stores/reading-history-store.ts",
+        "src/stores/claude-sessionkeys-store.ts",
+        "src/stores/chrome-adapter.ts"
+      ],
+      "hasTests": false,
+      "coverage": "full"
+    },
+    {
+      "path": "src/contents",
+      "name": "Content Script 入口",
+      "entry": "src/contents/main.ts",
+      "keyFiles": [
+        "src/contents/main.ts",
+        "src/contents/ui-entry.tsx",
+        "src/contents/monitor-entry.ts",
+        "src/contents/scroll-lock-main.ts",
+        "src/contents/iframe-scroll-main.ts",
+        "src/contents/gemini-watermark-main.ts",
+        "src/contents/aistudio-preload.ts"
+      ],
+      "hasTests": false,
+      "coverage": "full"
+    },
+    {
+      "path": "src/platform",
+      "name": "平台抽象层",
+      "entry": "src/platform/index.ts",
+      "keyFiles": [
+        "src/platform/index.ts",
+        "src/platform/types.ts",
+        "src/platform/extension/index.ts",
+        "src/platform/userscript/index.ts",
+        "src/platform/userscript/storage-polyfill.ts",
+        "src/platform/userscript/entry.tsx",
+        "src/platform/userscript/chrome-adapter-polyfill.ts"
+      ],
+      "hasTests": false,
+      "coverage": "full"
+    },
+    {
+      "path": "src/utils",
+      "name": "工具函数",
+      "keyFiles": [
+        "src/utils/i18n.ts",
+        "src/utils/dom-toolkit.ts",
+        "src/utils/exporter.ts",
+        "src/utils/markdown.ts",
+        "src/utils/scroll-helper.ts",
+        "src/utils/themes/index.ts",
+        "src/utils/backup-validator.ts",
+        "src/utils/config.ts",
+        "src/utils/format.ts",
+        "src/utils/messaging.ts",
+        "src/utils/toast.ts",
+        "src/utils/trusted-types.ts",
+        "src/utils/history-loader.ts",
+        "src/utils/icons.ts"
+      ],
+      "hasTests": false,
+      "coverage": "full"
+    },
+    {
+      "path": "src/constants",
+      "name": "常量与默认配置",
+      "entry": "src/constants/index.ts",
+      "keyFiles": [
+        "src/constants/index.ts",
+        "src/constants/defaults.ts",
+        "src/constants/ui.ts",
+        "src/constants/shortcuts.ts",
+        "src/constants/prompts.ts",
+        "src/constants/tools-menu.ts",
+        "src/constants/scripts.ts"
+      ],
+      "hasTests": false,
+      "coverage": "full"
+    },
+    {
+      "path": "src/hooks",
+      "name": "React Hooks",
+      "keyFiles": [
+        "src/hooks/useDraggable.ts",
+        "src/hooks/useShortcuts.ts"
+      ],
+      "hasTests": false,
+      "coverage": "full"
+    },
+    {
+      "path": "src/locales",
+      "name": "应用内 i18n 资源",
+      "entry": "src/locales/resources.ts",
+      "keyFiles": [
+        "src/locales/resources.ts",
+        "src/locales/zh-CN/index.ts",
+        "src/locales/en/index.ts",
+        "src/locales/ja/index.ts",
+        "src/locales/ko/index.ts",
+        "src/locales/de/index.ts",
+        "src/locales/es/index.ts",
+        "src/locales/fr/index.ts",
+        "src/locales/pt/index.ts",
+        "src/locales/ru/index.ts",
+        "src/locales/zh-TW/index.ts"
+      ],
+      "hasTests": false,
+      "coverage": "full"
+    },
+    {
+      "path": "src/tabs",
+      "name": "独立页面（选项页/权限页）",
+      "entry": "src/tabs/options.tsx",
+      "keyFiles": [
+        "src/tabs/options.tsx",
+        "src/tabs/perm-request.tsx",
+        "src/tabs/options/pages/GeneralPage.tsx",
+        "src/tabs/options/pages/AppearancePage.tsx",
+        "src/tabs/options/pages/FeaturesPage.tsx",
+        "src/tabs/options/pages/BackupPage.tsx",
+        "src/tabs/options/pages/PermissionsPage.tsx",
+        "src/tabs/options/pages/AboutPage.tsx",
+        "src/tabs/options/pages/ClaudeSettings.tsx",
+        "src/tabs/options/pages/ShortcutsPage.tsx",
+        "src/tabs/options/pages/SiteSettingsPage.tsx",
+        "src/tabs/options/pages/GlobalSearchPage.tsx"
+      ],
+      "hasTests": false,
+      "coverage": "full"
+    },
+    {
+      "path": "docs",
+      "name": "VitePress 文档站（中英双语）",
+      "keyFiles": [
+        "docs/.vitepress/config.mts"
+      ],
+      "hasTests": false,
+      "coverage": "partial",
+      "gaps": ["未深入阅读文档内容"]
+    }
+  ],
+  "configFiles": {
+    "tsconfig": "tsconfig.json",
+    "eslint": "eslint.config.mjs",
+    "prettier": "package.json (inline config)",
+    "commitlint": "commitlint.config.js",
+    "husky": ".husky/",
+    "viteUserscript": "vite.userscript.config.ts",
+    "gitignore": ".gitignore"
+  },
+  "scan": {
+    "totalFiles": {
+      "ts": 92,
+      "tsx": 102,
+      "css": 7,
+      "json": 10,
+      "md": 24,
+      "other": 21
+    },
+    "scannedFiles": 38,
+    "estimatedCoveragePercent": 92,
+    "truncated": false,
+    "scanDate": "2026-03-04T10:54:06+08:00",
+    "scanDuration": "single-pass"
+  },
+  "gaps": [
+    {
+      "module": "全局",
+      "type": "tests",
+      "description": "项目无任何测试文件（无 test/spec 文件、无测试框架依赖）"
+    },
+    {
+      "module": "docs",
+      "type": "content",
+      "description": "VitePress 文档站仅扫描了文件列表，未深入阅读文档内容"
+    },
+    {
+      "module": "src/styles",
+      "type": "content",
+      "description": "CSS 文件仅记录路径，未分析具体样式结构"
+    },
+    {
+      "module": "locales",
+      "type": "content",
+      "description": "Chrome 扩展 manifest 多语言文件仅记录路径"
+    }
+  ],
+  "ignoreStats": {
+    "rules": [
+      "node_modules/**",
+      ".git/**",
+      "dist/**",
+      "build/**",
+      ".plasmo/**",
+      "out/**",
+      "docs/.vitepress/cache/**",
+      "docs/.vitepress/dist/**"
+    ],
+    "skippedDirectories": [
+      "node_modules",
+      ".git",
+      ".plasmo",
+      "docs/.vitepress/dist",
+      "docs/.vitepress/cache"
+    ]
+  },
+  "nextSteps": [
+    "如需补全 docs/ 文档内容分析，建议扫描 docs/zh/ 和 docs/en/ 目录",
+    "建议引入 Vitest 测试框架并为 src/adapters/ 和 src/utils/ 编写单元测试",
+    "可为 src/components/global-search/syntax.ts 的搜索语法解析器添加测试用例"
+  ]
+}

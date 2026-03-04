@@ -20,6 +20,8 @@ yarn.lock
 assets/
 public/
 .spec-workflow/
+.claude/
+CLAUDE.md
 
 .prettierrc.mjs
 vite.userscript.config.ts
