@@ -6,6 +6,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 
 import type { Conversation, ConversationManager, Folder, Tag } from "~core/conversation-manager"
+import { SITE_IDS } from "~constants"
 import { useSettingsStore } from "~stores/settings-store"
 import { t } from "~utils/i18n"
 import { showToast } from "~utils/toast"
@@ -123,6 +124,9 @@ export const ConversationsTab: React.FC<ConversationsTabProps> = ({
   const [showTagFilterMenu, setShowTagFilterMenu] = useState(false)
   const [isFolderSelectOpen, setIsFolderSelectOpen] = useState(false)
   const [isNarrowLayout, setIsNarrowLayout] = useState(false)
+
+  const isChatglm = manager.siteAdapter?.getSiteId?.() === SITE_IDS.CHATGLM
+  const showUnsupportedMask = isChatglm
 
   // 对话框和菜单
   const [dialog, setDialog] = useState<DialogType>(null)
@@ -275,6 +279,10 @@ export const ConversationsTab: React.FC<ConversationsTabProps> = ({
 
   // 同步
   const handleSync = useCallback(async () => {
+    if (isChatglm) {
+      showToast(t("chatglmConversationsUnsupportedSync") || "ChatGLM 会话暂不支持同步")
+      return
+    }
     setSyncing(true)
     try {
       await manager.siteAdapter?.loadAllConversations?.()
@@ -294,7 +302,7 @@ export const ConversationsTab: React.FC<ConversationsTabProps> = ({
     } finally {
       setSyncing(false)
     }
-  }, [manager, lastUsedFolderId, loadData])
+  }, [isChatglm, manager, lastUsedFolderId, loadData])
 
   // 定位当前对话
   const handleLocate = useCallback(() => {
@@ -518,7 +526,21 @@ export const ConversationsTab: React.FC<ConversationsTabProps> = ({
           flexDirection: "column",
           height: "100%",
           overflow: "hidden",
+          position: "relative",
         }}>
+        {showUnsupportedMask && (
+          <div className="conversations-unsupported-mask" aria-hidden="true">
+            <div className="conversations-unsupported-card">
+              <div className="conversations-unsupported-icon">!</div>
+              <div className="conversations-unsupported-title">
+                {t("chatglmConversationsUnsupportedTitle") || "ChatGLM 会话暂不支持"}
+              </div>
+              <div className="conversations-unsupported-desc">
+                {t("chatglmConversationsUnsupportedDesc") || "当前站点限制导致会话列表无法稳定获取"}
+              </div>
+            </div>
+          </div>
+        )}
         {/* 工具栏 */}
         <div className="conversations-toolbar">
           {/* 1. 同步目标选择 */}
@@ -545,7 +567,7 @@ export const ConversationsTab: React.FC<ConversationsTabProps> = ({
           <Tooltip content={t("conversationsSync") || "同步"}>
             <button
               className="conversations-toolbar-btn sync"
-              disabled={syncing}
+              disabled={syncing || isChatglm}
               onClick={handleSync}>
               {syncing ? <HourglassIcon size={18} /> : <SyncIcon size={18} />}
             </button>
