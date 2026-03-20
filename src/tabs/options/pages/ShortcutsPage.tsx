@@ -10,6 +10,8 @@ import {
   DEFAULT_KEYBINDINGS,
   formatShortcut,
   isMacOS,
+  normalizeShortcutBinding,
+  normalizeShortcutKey,
   SHORTCUT_CATEGORIES,
   SHORTCUT_META,
   type ShortcutActionId,
@@ -48,11 +50,16 @@ const ShortcutInput: React.FC<{
         return
       }
 
+      // Windows 国际键盘上的 AltGr 会被浏览器报告为 Ctrl+Alt，
+      // 录制时需要跳过，避免把输入字符误保存成 Ctrl+Alt 快捷键。
+      if (!isMac && e.getModifierState("AltGraph")) {
+        return
+      }
+
       const newBinding: ShortcutBinding = {
-        key: e.key,
+        key: normalizeShortcutKey(e.key, e.code),
         alt: e.altKey,
-        ctrl: e.ctrlKey,
-        meta: e.metaKey,
+        ctrl: isMac ? e.metaKey : e.ctrlKey,
         shift: e.shiftKey,
       }
 
@@ -79,10 +86,9 @@ const ShortcutInput: React.FC<{
         }
       }
 
-      // 跨平台兼容：Mac 上将 meta (⌘) 转换为 ctrl，确保同步到 Windows 后可用
-      if (isMac && newBinding.meta) {
-        newBinding.ctrl = true
-        newBinding.meta = false
+      // 产品约定：mac 不支持真实 Control 作为自定义修饰键，只支持 Command 作为主修饰键
+      if (isMac && e.ctrlKey && !e.metaKey) {
+        return
       }
 
       onChange(newBinding)
@@ -162,6 +168,8 @@ const ShortcutsPage: React.FC<ShortcutsPageProps> = ({ siteId: _siteId }) => {
   const checkConflict = useCallback(
     (actionId: string, binding: ShortcutBinding | null): string | undefined => {
       if (!binding) return undefined // null 绑定没有冲突
+      const normalizedBinding = normalizeShortcutBinding(binding)
+      if (!normalizedBinding) return undefined
       const allBindings = shortcuts?.keybindings || {}
       for (const [id, b] of Object.entries(allBindings)) {
         if (id === actionId) continue
@@ -170,12 +178,14 @@ const ShortcutsPage: React.FC<ShortcutsPageProps> = ({ siteId: _siteId }) => {
         const meta = SHORTCUT_META[id as ShortcutActionId]
         if (!meta) continue
 
+        const normalizedExistingBinding = normalizeShortcutBinding(b)
+        if (!normalizedExistingBinding) continue
+
         if (
-          b.key === binding.key &&
-          !!b.alt === !!binding.alt &&
-          !!b.ctrl === !!binding.ctrl &&
-          !!b.meta === !!binding.meta &&
-          !!b.shift === !!binding.shift
+          normalizedExistingBinding.key === normalizedBinding.key &&
+          !!normalizedExistingBinding.alt === !!normalizedBinding.alt &&
+          !!normalizedExistingBinding.ctrl === !!normalizedBinding.ctrl &&
+          !!normalizedExistingBinding.shift === !!normalizedBinding.shift
         ) {
           const conflictParts = [
             t("shortcutConflictWith") || "与",
