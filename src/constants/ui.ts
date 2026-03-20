@@ -133,6 +133,18 @@ export const SETTING_ID_ROUTE_MAP: Record<string, SettingRoute> = {
     page: NAV_IDS.FEATURES,
     subTab: FEATURES_TAB_IDS.REMINDER,
   },
+  "usage-monitor-enabled": {
+    page: NAV_IDS.FEATURES,
+    subTab: FEATURES_TAB_IDS.REMINDER,
+  },
+  "usage-monitor-daily-limit": {
+    page: NAV_IDS.FEATURES,
+    subTab: FEATURES_TAB_IDS.REMINDER,
+  },
+  "usage-monitor-auto-reset": {
+    page: NAV_IDS.FEATURES,
+    subTab: FEATURES_TAB_IDS.REMINDER,
+  },
 } as const
 
 const SETTING_ID_ROUTE_RULES: SettingRouteRule[] = [
@@ -232,6 +244,9 @@ export const SETTING_ID_ALIASES: Record<string, string> = {
   "features.prompts.submitShortcut": "shortcuts-prompt-submit-shortcut",
   "features.tab.openInNewTab": "tab-open-new",
   "features.tab.autoRename": "tab-auto-rename",
+  "usageMonitor.enabled": "usage-monitor-enabled",
+  "usageMonitor.dailyLimit": "usage-monitor-daily-limit",
+  "usageMonitor.autoResetEnabled": "usage-monitor-auto-reset",
   "features.outline.autoUpdate": "outline-auto-update",
   "features.outline.inlineBookmarkMode": "outline-inline-bookmark-mode",
   "features.outline.panelBookmarkMode": "outline-panel-bookmark-mode",
@@ -449,6 +464,32 @@ export const SETTINGS_SEARCH_ITEMS: SettingsSearchItem[] = [
     settingId: "tab-auto-focus",
     title: "自动聚焦到对话页",
     keywords: ["tab", "auto focus", "自动聚焦"],
+  },
+  {
+    settingId: "usage-monitor-enabled",
+    title: "启用高级模型对话本地计数与预估",
+    keywords: [
+      "usage",
+      "counter",
+      "estimate",
+      "token",
+      "quota",
+      "limit",
+      "advanced model",
+      "高级模型",
+      "本地计数",
+      "预估",
+    ],
+  },
+  {
+    settingId: "usage-monitor-daily-limit",
+    title: "每日对话次数预估上限",
+    keywords: ["daily limit", "quota", "limit", "每日上限", "次数上限", "token"],
+  },
+  {
+    settingId: "usage-monitor-auto-reset",
+    title: "自动归零",
+    keywords: ["auto reset", "reset", "midnight", "自动归零", "重置", "清零"],
   },
   {
     settingId: "tab-privacy-mode",

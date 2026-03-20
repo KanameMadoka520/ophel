@@ -17,6 +17,10 @@ let isUpdatingFromStorage = false
 
 const normalizeSettings = (settings: Settings): Settings => ({
   ...settings,
+  usageMonitor: {
+    ...DEFAULT_SETTINGS.usageMonitor,
+    ...settings.usageMonitor,
+  },
   shortcuts: normalizeShortcutsSettings(settings.shortcuts) || DEFAULT_SETTINGS.shortcuts,
 })
 

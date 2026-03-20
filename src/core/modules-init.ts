@@ -16,6 +16,7 @@ import { ReadingHistoryManager } from "~core/reading-history"
 import { ScrollLockManager } from "~core/scroll-lock-manager"
 import { TabManager } from "~core/tab-manager"
 import { ThemeManager } from "~core/theme-manager"
+import { UsageCounterManager } from "~core/usage-counter-manager"
 import { UserQueryMarkdownRenderer } from "~core/user-query-markdown"
 import { WatermarkRemover } from "~core/watermark-remover"
 import { getSettingsState, subscribeSettings } from "~stores/settings-store"
@@ -54,6 +55,7 @@ export interface ModuleInstances {
   scrollLockManager: ScrollLockManager | null
   userQueryMarkdownRenderer: UserQueryMarkdownRenderer | null
   policyRetryManager: PolicyRetryManager | null
+  usageCounterManager: UsageCounterManager | null
 }
 
 // 全局模块实例（用于设置变更时的热更新）
@@ -69,6 +71,7 @@ let modules: ModuleInstances = {
   scrollLockManager: null,
   userQueryMarkdownRenderer: null,
   policyRetryManager: null,
+  usageCounterManager: null,
 }
 
 let readingHistoryAutoStartTimer: NodeJS.Timeout | null = null
@@ -223,6 +226,16 @@ export function initTabManager(ctx: ModulesContext): void {
 }
 
 /**
+ * 初始化本地使用量计数与预估面板
+ */
+export function initUsageCounterManager(ctx: ModulesContext): void {
+  const { adapter, settings, siteId } = ctx
+
+  modules.usageCounterManager = new UsageCounterManager(adapter, settings.usageMonitor, siteId)
+  modules.usageCounterManager.start()
+}
+
+/**
  * 初始化水印移除器 (仅 Gemini)
  */
 export function initWatermarkRemover(ctx: ModulesContext): void {
@@ -345,19 +358,22 @@ export async function initCoreModules(ctx: ModulesContext): Promise<ModuleInstan
   // 6. 水印移除
   initWatermarkRemover(ctx)
 
-  // 7. 阅读历史
+  // 7. 本地使用量计数与预估
+  initUsageCounterManager(ctx)
+
+  // 8. 阅读历史
   await initReadingHistoryManager(ctx)
 
-  // 8. 模型锁定
+  // 9. 模型锁定
   initModelLocker(ctx)
 
-  // 9. 滚动锁定
+  // 10. 滚动锁定
   initScrollLockManager(ctx)
 
-  // 10. 用户提问 Markdown 渲染
+  // 11. 用户提问 Markdown 渲染
   initUserQueryMarkdownRenderer(ctx)
 
-  // 11. Policy Retry Manager
+  // 12. Policy Retry Manager
   initPolicyRetryManager(ctx)
 
   return modules
@@ -455,7 +471,21 @@ export function subscribeModuleUpdates(ctx: ModulesContext): void {
       }
     }
 
-    // 8. Reading History update
+    // 8. Usage Counter update
+    if (newSettings?.usageMonitor) {
+      if (modules.usageCounterManager) {
+        modules.usageCounterManager.updateSettings(newSettings.usageMonitor)
+      } else {
+        modules.usageCounterManager = new UsageCounterManager(
+          adapter,
+          newSettings.usageMonitor,
+          siteId,
+        )
+        modules.usageCounterManager.start()
+      }
+    }
+
+    // 9. Reading History update
     if (newSettings?.readingHistory) {
       if (modules.readingHistoryManager) {
         modules.readingHistoryManager.updateSettings(newSettings.readingHistory)
@@ -468,7 +498,7 @@ export function subscribeModuleUpdates(ctx: ModulesContext): void {
       }
     }
 
-    // 9. Copy Manager update
+    // 10. Copy Manager update
     if (newSettings?.content) {
       if (modules.copyManager) {
         modules.copyManager.updateSettings(newSettings.content)
@@ -478,7 +508,7 @@ export function subscribeModuleUpdates(ctx: ModulesContext): void {
         if (newSettings.content.tableCopy) modules.copyManager.initTableCopy()
       }
 
-      // 10. User Query Markdown Renderer update
+      // 11. User Query Markdown Renderer update
       if (newSettings.content.userQueryMarkdown) {
         if (modules.userQueryMarkdownRenderer) {
           modules.userQueryMarkdownRenderer.updateSettings(true)
@@ -490,7 +520,7 @@ export function subscribeModuleUpdates(ctx: ModulesContext): void {
       }
     }
 
-    // 11. Policy Retry Manager update
+    // 12. Policy Retry Manager update
     if (
       newSettings?.geminiEnterprise &&
       siteId === SITE_IDS.GEMINI_ENTERPRISE &&
@@ -553,7 +583,10 @@ export function initUrlChangeObserver(ctx: ModulesContext): void {
       // 4. Textarea 重新查找
       adapter.findTextarea()
 
-      // 5. 模型锁定重新触发（新对话/新页面可能重置模型）
+      // 5. 本地计数面板重新挂载
+      modules.usageCounterManager?.handleUrlChange()
+
+      // 6. 模型锁定重新触发（新对话/新页面可能重置模型）
       modules.modelLocker?.relock(300)
     }
   }
@@ -588,6 +621,10 @@ export function handleClearAllData(): void {
   if (modules.readingHistoryManager) {
     modules.readingHistoryManager.stopRecording()
     modules.readingHistoryManager = null
+  }
+  if (modules.usageCounterManager) {
+    modules.usageCounterManager.destroy()
+    modules.usageCounterManager = null
   }
 }
 

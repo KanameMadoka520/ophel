@@ -177,6 +177,53 @@ export const en = {
   // ======== Common Buttons/Labels ========
   tabBehaviorTitle: "Tab Behavior",
   notificationSettings: "Post-Completion Actions",
+  usageMonitorSettingsTitle: "Local Usage Counter & Estimate",
+  usageMonitorSettingsDesc:
+    "Show local send counts, threshold progress, and rough token estimates near the input box.",
+  usageMonitorExplainLocalOnly:
+    "Note: this is a local-only estimate. The extension does not know the official remaining quota or the server-side true limit.",
+  usageMonitorExplainNoBackend:
+    "Behavior: it only stores counts locally and renders a lightweight panel near the composer. It does not write any extra state to the site's backend.",
+  usageMonitorExplainReset:
+    "Reset: platform quota reset times may drift and are not always tied to local midnight. Auto reset is off by default; manual reset is the safer default.",
+  usageMonitorEnabledLabel: "Enable local advanced-model counter and estimate",
+  usageMonitorEnabledDesc:
+    "Use a lightweight local panel near the composer to estimate usage for the current account without changing site behavior.",
+  usageMonitorDailyLimitLabel: "Estimated daily conversation limit",
+  usageMonitorDailyLimitDesc:
+    "Used for the 80% / 100% warning thresholds. This is only a local estimate.",
+  usageMonitorAutoResetLabel: "Enable auto reset",
+  usageMonitorAutoResetDesc:
+    "Experimental: reset automatically when the local date changes. Disabled by default because actual platform reset times may vary.",
+  usageMonitorTodayUsed: "Used Today",
+  usageMonitorLocallyUsed: "Locally Counted",
+  usageMonitorInputChars: "Input Chars",
+  usageMonitorContextChars: "Context Chars",
+  usageMonitorInputTokens: "Estimated Input",
+  usageMonitorLoadedConversationTokens: "Loaded Context",
+  usageMonitorLoadedOutputTokens: "Loaded Output",
+  usageMonitorRequestTokens: "Current Request",
+  usageMonitorRoundTripTokens: "Round Trip",
+  usageMonitorRoundTripDesc:
+    "Round trip = the estimated total cost of the current request plus one expected reply.",
+  usageMonitorResetButton: "Reset",
+  usageMonitorManualMode: "Manual Mode",
+  usageMonitorChartTitle: "Usage History",
+  usageMonitorChartDesc:
+    "Aggregated from local send events. View counts or estimated tokens by hour, day, or month.",
+  usageMonitorChartHour: "Hour",
+  usageMonitorChartDay: "Day",
+  usageMonitorChartMonth: "Month",
+  usageMonitorChartMetricCount: "Count",
+  usageMonitorChartMetricRequest: "Request Tokens",
+  usageMonitorChartMetricRoundTrip: "Round Trip",
+  usageMonitorChartMetricOutput: "Output Tokens",
+  usageMonitorChartDelta: "vs previous",
+  usageMonitorChartMaxRequest: "Max single request",
+  usageMonitorChartMaxRoundTrip: "Max single round trip",
+  usageMonitorChartMaxOutput: "Max single output",
+  usageMonitorChartScrollHint: "Scroll horizontally to view the full timeline",
+  usageMonitorChartEmpty: "No history yet",
   enablePrerequisiteToast: 'Please enable "{setting}" first',
   privacyModeTitle: "Privacy Mode",
   collapsedButtonsOrderTitle: "Quick Buttons",

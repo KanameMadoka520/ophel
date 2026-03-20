@@ -5,6 +5,7 @@
  */
 import React, { useEffect, useState } from "react"
 
+import { getAdapter } from "~adapters"
 import { FeaturesIcon } from "~components/icons"
 import { Button, NumberInput } from "~components/ui"
 import { FEATURES_TAB_IDS, NOTIFICATION_SOUND_PRESETS } from "~constants"
@@ -12,6 +13,15 @@ import { platform } from "~platform"
 import { useSettingsStore } from "~stores/settings-store"
 import { t } from "~utils/i18n"
 import { MSG_CHECK_PERMISSIONS, MSG_REQUEST_PERMISSIONS, sendToBackground } from "~utils/messaging"
+import {
+  aggregateUsageEvents,
+  getUsageEvents,
+  getUsageMetricValue,
+  watchUsageCounterState,
+  type UsageHistoryBucket,
+  type UsageHistoryGranularity,
+  type UsageHistoryMetric,
+} from "~utils/usage-monitor-storage"
 import { showToast, showToastThrottled } from "~utils/toast"
 
 import { PageTitle, SettingCard, SettingRow, TabGroup, ToggleRow } from "../components"
@@ -70,7 +80,454 @@ const LazyInput: React.FC<LazyInputProps> = ({
   )
 }
 
-const FeaturesPage: React.FC<FeaturesPageProps> = ({ siteId: _siteId, initialTab }) => {
+const UsageHistoryChart: React.FC<{ siteId: string }> = ({ siteId }) => {
+  const [granularity, setGranularity] = useState<UsageHistoryGranularity>("day")
+  const [metric, setMetric] = useState<UsageHistoryMetric>("requestTokens")
+  const [buckets, setBuckets] = useState<UsageHistoryBucket[]>([])
+  const [loading, setLoading] = useState(true)
+  const [hoveredIndex, setHoveredIndex] = useState<number | null>(null)
+  const scrollRef = React.useRef<HTMLDivElement | null>(null)
+  const currentCid = React.useMemo(() => {
+    if (siteId === "_default") return undefined
+    return getAdapter()?.getCurrentCid?.() || undefined
+  }, [siteId])
+
+  const refresh = React.useCallback(async () => {
+    setLoading(true)
+    try {
+      const events = await getUsageEvents({
+        siteId: siteId === "_default" ? undefined : siteId,
+        cid: currentCid,
+      })
+      setBuckets(aggregateUsageEvents(events, granularity))
+    } finally {
+      setLoading(false)
+    }
+  }, [currentCid, granularity, siteId])
+
+  useEffect(() => {
+    void refresh()
+  }, [refresh])
+
+  useEffect(() => {
+    const unwatch = watchUsageCounterState(() => {
+      void refresh()
+    })
+    return () => unwatch()
+  }, [refresh])
+
+  useEffect(() => {
+    if (!scrollRef.current) return
+    const container = scrollRef.current
+    const scrollToRight = () => {
+      container.scrollLeft = container.scrollWidth
+    }
+    scrollToRight()
+    const rafId = window.requestAnimationFrame(scrollToRight)
+    return () => window.cancelAnimationFrame(rafId)
+  }, [granularity, buckets.length])
+
+  const values = buckets.map((bucket) => getUsageMetricValue(bucket, metric))
+  const maxValue = Math.max(1, ...values)
+  const latestValue = values[values.length - 1] ?? 0
+  const metricLabel =
+    metric === "requestTokens"
+      ? t("usageMonitorChartMetricRequest") || "请求 Tokens"
+      : metric === "roundTripTokens"
+        ? t("usageMonitorChartMetricRoundTrip") || "往返 Tokens"
+        : metric === "loadedOutputTokens"
+          ? t("usageMonitorChartMetricOutput") || "输出 Tokens"
+          : t("usageMonitorChartMetricCount") || "次数"
+  const bucketPixelWidth = granularity === "month" ? 72 : granularity === "hour" ? 48 : 44
+  const chartWidth =
+    buckets.length > 1 ? Math.max(640, 40 + (buckets.length - 1) * bucketPixelWidth + 48) : 640
+  const chartHeight = 220
+  const padding = { top: 16, right: 12, bottom: 32, left: 18 }
+  const innerWidth = chartWidth - padding.left - padding.right
+  const innerHeight = chartHeight - padding.top - padding.bottom
+  const stepX = buckets.length > 1 ? innerWidth / (buckets.length - 1) : innerWidth
+  const labelStep =
+    granularity === "month"
+      ? 1
+      : granularity === "hour"
+        ? 2
+        : Math.max(2, Math.ceil(buckets.length / 10))
+
+  const points = buckets.map((bucket, index) => {
+    const x = padding.left + stepX * index
+    const value = getUsageMetricValue(bucket, metric)
+    const ratio = value / maxValue
+    const y = padding.top + innerHeight - ratio * innerHeight
+    return { x, y, value, label: bucket.label }
+  })
+
+  const linePath =
+    points.length > 0
+      ? points
+          .map(
+            (point, index) =>
+              `${index === 0 ? "M" : "L"} ${point.x.toFixed(2)} ${point.y.toFixed(2)}`,
+          )
+          .join(" ")
+      : ""
+
+  const areaPath =
+    points.length > 0
+      ? `${linePath} L ${points[points.length - 1].x.toFixed(2)} ${(padding.top + innerHeight).toFixed(2)} L ${points[0].x.toFixed(2)} ${(padding.top + innerHeight).toFixed(2)} Z`
+      : ""
+
+  const hoveredBucket =
+    hoveredIndex !== null && hoveredIndex >= 0 && hoveredIndex < buckets.length
+      ? buckets[hoveredIndex]
+      : null
+  const hoveredPoint =
+    hoveredIndex !== null && hoveredIndex >= 0 && hoveredIndex < points.length
+      ? points[hoveredIndex]
+      : null
+  const previousHoveredBucket =
+    hoveredIndex !== null && hoveredIndex > 0 && hoveredIndex - 1 < buckets.length
+      ? buckets[hoveredIndex - 1]
+      : null
+  const hoveredMetricValue = hoveredBucket ? getUsageMetricValue(hoveredBucket, metric) : 0
+  const previousMetricValue = previousHoveredBucket
+    ? getUsageMetricValue(previousHoveredBucket, metric)
+    : 0
+  const hoveredDelta =
+    previousHoveredBucket && hoveredBucket ? hoveredMetricValue - previousMetricValue : null
+
+  const formatBucketTime = (bucket: UsageHistoryBucket): string => {
+    const start = new Date(bucket.startAt)
+    const end = new Date(bucket.endAt - 1)
+
+    if (granularity === "hour") {
+      const date = `${start.getFullYear()}/${`${start.getMonth() + 1}`.padStart(2, "0")}/${`${start.getDate()}`.padStart(2, "0")}`
+      return `${date} ${`${start.getHours()}`.padStart(2, "0")}:00 - ${`${end.getHours()}`.padStart(2, "0")}:59`
+    }
+
+    if (granularity === "day") {
+      return `${start.getFullYear()}/${`${start.getMonth() + 1}`.padStart(2, "0")}/${`${start.getDate()}`.padStart(2, "0")}`
+    }
+
+    return `${start.getFullYear()}/${`${start.getMonth() + 1}`.padStart(2, "0")}`
+  }
+
+  const tooltipWidth = 220
+  const viewportWidth = scrollRef.current?.clientWidth || chartWidth
+  const scrollOffset = scrollRef.current?.scrollLeft || 0
+  const tooltipLeft =
+    hoveredPoint && viewportWidth > tooltipWidth
+      ? Math.min(
+          viewportWidth - tooltipWidth - 8,
+          Math.max(8, hoveredPoint.x - scrollOffset - tooltipWidth / 2),
+        )
+      : 8
+  const tooltipTop = hoveredPoint && hoveredPoint.y > 110 ? Math.max(8, hoveredPoint.y - 94) : 8
+  const chartColors = {
+    grid: "var(--gh-border, #e5e7eb)",
+    area: "var(--gh-user-query-bg, rgba(66, 133, 244, 0.08))",
+    line: "var(--gh-primary, #4285f4)",
+    guide: "var(--gh-border-active, #6366f1)",
+    axis: "var(--gh-text-secondary, #6b7280)",
+    text: "var(--gh-text, #374151)",
+    cardBg: "var(--gh-card-bg, #ffffff)",
+    secondaryBg: "var(--gh-bg-secondary, #f9fafb)",
+    border: "var(--gh-border, #e5e7eb)",
+    activeBorder: "var(--gh-border-active, #6366f1)",
+    shadow: "var(--gh-shadow-sm, 0 1px 3px rgba(0,0,0,0.1))",
+  }
+
+  return (
+    <div
+      style={{
+        marginTop: "14px",
+        padding: "14px",
+        borderRadius: "12px",
+        border: `1px solid ${chartColors.border}`,
+        background: chartColors.secondaryBg,
+      }}>
+      <div
+        style={{ display: "flex", justifyContent: "space-between", gap: "12px", flexWrap: "wrap" }}>
+        <div>
+          <div style={{ fontSize: "14px", fontWeight: 600, color: "var(--gh-text, #374151)" }}>
+            {t("usageMonitorChartTitle") || "历史统计曲线"}
+          </div>
+          <div
+            style={{
+              fontSize: "12px",
+              color: "var(--gh-text-secondary, #6b7280)",
+              marginTop: "4px",
+            }}>
+            {t("usageMonitorChartDesc") ||
+              "基于本地记录的发送事件聚合，可按小时、天、月查看次数或粗估 Tokens。"}
+          </div>
+        </div>
+        <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "flex-start" }}>
+          <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+            {(
+              [
+                ["hour", t("usageMonitorChartHour") || "小时"],
+                ["day", t("usageMonitorChartDay") || "天"],
+                ["month", t("usageMonitorChartMonth") || "月"],
+              ] as Array<[UsageHistoryGranularity, string]>
+            ).map(([value, label]) => (
+              <Button
+                key={value}
+                size="sm"
+                variant={granularity === value ? "primary" : "secondary"}
+                onClick={() => setGranularity(value)}>
+                {label}
+              </Button>
+            ))}
+          </div>
+          <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+            {(
+              [
+                ["count", t("usageMonitorChartMetricCount") || "次数"],
+                ["requestTokens", t("usageMonitorChartMetricRequest") || "请求 Tokens"],
+                ["roundTripTokens", t("usageMonitorChartMetricRoundTrip") || "往返 Tokens"],
+                ["loadedOutputTokens", t("usageMonitorChartMetricOutput") || "输出 Tokens"],
+              ] as Array<[UsageHistoryMetric, string]>
+            ).map(([value, label]) => (
+              <Button
+                key={value}
+                size="sm"
+                variant={metric === value ? "primary" : "secondary"}
+                onClick={() => setMetric(value)}>
+                {label}
+              </Button>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <div
+        style={{
+          display: "flex",
+          gap: "18px",
+          marginTop: "12px",
+          marginBottom: "8px",
+          flexWrap: "wrap",
+        }}>
+        <div style={{ fontSize: "12px", color: "var(--gh-text-secondary, #6b7280)" }}>
+          <span>{metricLabel}: </span>
+          <strong style={{ color: "var(--gh-text, #374151)" }}>{latestValue}</strong>
+        </div>
+        <div style={{ fontSize: "12px", color: "var(--gh-text-secondary, #6b7280)" }}>
+          <span>MAX: </span>
+          <strong style={{ color: "var(--gh-text, #374151)" }}>{maxValue}</strong>
+        </div>
+        <div style={{ fontSize: "12px", color: "var(--gh-text-secondary, #6b7280)" }}>
+          <span>{t("usageMonitorChartScrollHint") || "可左右滚动查看完整时间轴"}</span>
+        </div>
+      </div>
+
+      <div
+        style={{
+          position: "relative",
+          marginTop: "4px",
+        }}
+        onMouseLeave={() => setHoveredIndex(null)}>
+        <div
+          ref={scrollRef}
+          style={{
+            position: "relative",
+            borderRadius: "10px",
+            overflowX: "auto",
+            overflowY: "hidden",
+            background: chartColors.cardBg,
+            border: `1px solid ${chartColors.border}`,
+            minHeight: "220px",
+          }}>
+          <div style={{ width: `${chartWidth}px`, minWidth: "100%", position: "relative" }}>
+            <svg
+              viewBox={`0 0 ${chartWidth} ${chartHeight}`}
+              style={{ width: "100%", height: "220px", display: "block" }}>
+              {[0, 0.25, 0.5, 0.75, 1].map((ratio) => {
+                const y = padding.top + innerHeight - innerHeight * ratio
+                return (
+                  <line
+                    key={ratio}
+                    x1={padding.left}
+                    x2={chartWidth - padding.right}
+                    y1={y}
+                    y2={y}
+                    stroke={chartColors.grid}
+                    strokeWidth="1"
+                    opacity={0.6}
+                  />
+                )
+              })}
+
+              {areaPath && <path d={areaPath} fill={chartColors.area} />}
+              {linePath && (
+                <path
+                  d={linePath}
+                  fill="none"
+                  stroke={chartColors.line}
+                  strokeWidth="2.5"
+                  strokeLinejoin="round"
+                  strokeLinecap="round"
+                />
+              )}
+
+              {points.map((point) => (
+                <circle
+                  key={`${point.label}-${point.x}`}
+                  cx={point.x}
+                  cy={point.y}
+                  r="3"
+                  fill={chartColors.line}
+                />
+              ))}
+
+              {hoveredPoint && (
+                <line
+                  x1={hoveredPoint.x}
+                  x2={hoveredPoint.x}
+                  y1={padding.top}
+                  y2={padding.top + innerHeight}
+                  stroke={chartColors.guide}
+                  strokeDasharray="4 4"
+                  strokeWidth="1"
+                  opacity={0.65}
+                />
+              )}
+
+              {buckets.map((bucket, index) => {
+                const point = points[index]
+                const previous = points[index - 1]
+                const next = points[index + 1]
+                const xStart = previous ? (previous.x + point.x) / 2 : padding.left
+                const xEnd = next ? (point.x + next.x) / 2 : chartWidth - padding.right
+
+                return (
+                  <rect
+                    key={`${bucket.key}-hover`}
+                    x={xStart}
+                    y={padding.top}
+                    width={Math.max(12, xEnd - xStart)}
+                    height={innerHeight}
+                    fill="transparent"
+                    pointerEvents="all"
+                    onMouseEnter={() => setHoveredIndex(index)}
+                    onMouseMove={() => setHoveredIndex(index)}
+                  />
+                )
+              })}
+
+              {buckets.map((bucket, index) => {
+                const shouldShow =
+                  index === 0 || index === buckets.length - 1 || index % labelStep === 0
+                if (!shouldShow) return null
+
+                const x = padding.left + stepX * index
+                return (
+                  <text
+                    key={bucket.key}
+                    x={x}
+                    y={chartHeight - 10}
+                    textAnchor="middle"
+                    fill={chartColors.axis}
+                    fontSize="11">
+                    {bucket.label}
+                  </text>
+                )
+              })}
+            </svg>
+          </div>
+
+          {!loading && buckets.every((bucket) => getUsageMetricValue(bucket, metric) === 0) && (
+            <div
+              style={{
+                position: "absolute",
+                inset: 0,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                color: chartColors.axis,
+                fontSize: "13px",
+              }}>
+              {t("usageMonitorChartEmpty") || "暂无统计数据"}
+            </div>
+          )}
+        </div>
+
+        {hoveredBucket && hoveredPoint && (
+          <div
+            style={{
+              position: "absolute",
+              left: `${tooltipLeft}px`,
+              top: `${tooltipTop}px`,
+              width: `${tooltipWidth}px`,
+              borderRadius: "10px",
+              padding: "10px 12px",
+              background: chartColors.cardBg,
+              color: chartColors.text,
+              border: `1px solid ${chartColors.activeBorder}`,
+              boxShadow: chartColors.shadow,
+              pointerEvents: "none",
+              zIndex: 5,
+            }}>
+            <div style={{ fontSize: "12px", fontWeight: 700, marginBottom: "8px" }}>
+              {formatBucketTime(hoveredBucket)}
+            </div>
+            {hoveredDelta !== null && (
+              <div
+                style={{
+                  fontSize: "11px",
+                  marginBottom: "8px",
+                  color: "var(--gh-text-secondary, #6b7280)",
+                }}>
+                {metricLabel}: {hoveredMetricValue}
+                {" · "}
+                {hoveredDelta >= 0 ? "+" : ""}
+                {hoveredDelta} {t("usageMonitorChartDelta") || "较上一桶"}
+              </div>
+            )}
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "1fr auto",
+                gap: "6px 10px",
+                fontSize: "12px",
+              }}>
+              <span style={{ color: chartColors.axis }}>
+                {t("usageMonitorChartMetricCount") || "次数"}
+              </span>
+              <strong>{hoveredBucket.count}</strong>
+              <span style={{ color: chartColors.axis }}>
+                {t("usageMonitorChartMetricRequest") || "请求 Tokens"}
+              </span>
+              <strong>{hoveredBucket.requestTokens}</strong>
+              <span style={{ color: chartColors.axis }}>
+                {t("usageMonitorChartMetricRoundTrip") || "往返 Tokens"}
+              </span>
+              <strong>{hoveredBucket.roundTripTokens}</strong>
+              <span style={{ color: chartColors.axis }}>
+                {t("usageMonitorChartMetricOutput") || "输出 Tokens"}
+              </span>
+              <strong>{hoveredBucket.loadedOutputTokens}</strong>
+              <span style={{ color: chartColors.axis }}>
+                {t("usageMonitorChartMaxRequest") || "最大单次请求"}
+              </span>
+              <strong>{hoveredBucket.maxRequestTokens}</strong>
+              <span style={{ color: chartColors.axis }}>
+                {t("usageMonitorChartMaxRoundTrip") || "最大单次往返"}
+              </span>
+              <strong>{hoveredBucket.maxRoundTripTokens}</strong>
+              <span style={{ color: chartColors.axis }}>
+                {t("usageMonitorChartMaxOutput") || "最大单次输出"}
+              </span>
+              <strong>{hoveredBucket.maxLoadedOutputTokens}</strong>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+const FeaturesPage: React.FC<FeaturesPageProps> = ({ siteId, initialTab }) => {
   const tabs = [
     { id: FEATURES_TAB_IDS.OUTLINE, label: t("tabOutline") || "大纲" },
     { id: FEATURES_TAB_IDS.CONVERSATIONS, label: t("tabConversations") || "会话" },
@@ -362,6 +819,95 @@ const FeaturesPage: React.FC<FeaturesPageProps> = ({ siteId: _siteId, initialTab
       />
     </SettingCard>
   )
+  const usageMonitorCard = (
+    <SettingCard
+      title={t("usageMonitorSettingsTitle") || "高级模型本地计数与预估"}
+      description={
+        t("usageMonitorSettingsDesc") ||
+        "在输入框附近显示本地发送计数、阈值进度和粗略 Token 预估，不影响站点原有发送逻辑"
+      }>
+      <div
+        style={{
+          marginBottom: "12px",
+          padding: "10px 12px",
+          borderRadius: "10px",
+          border: "1px solid var(--gh-border, #e5e7eb)",
+          background: "var(--gh-bg-secondary, #f9fafb)",
+          color: "var(--gh-text-secondary, #6b7280)",
+          fontSize: "12px",
+          lineHeight: 1.6,
+        }}>
+        <div>
+          {t("usageMonitorExplainLocalOnly") ||
+            "说明：这是纯本地估算能力。插件不会读取官方剩余额度，也不会知道服务端真实剩余次数。"}
+        </div>
+        <div>
+          {t("usageMonitorExplainNoBackend") ||
+            "行为：仅在本地存储里记录计数，并在页面输入区附近展示面板；不会额外改写站点后端状态。"}
+        </div>
+        <div>
+          {t("usageMonitorExplainReset") ||
+            "归零：平台实际额度重置时间可能不是固定 00:00。自动归零默认关闭，建议在平台真实重置后手动清零校准。"}
+        </div>
+      </div>
+
+      <ToggleRow
+        label={t("usageMonitorEnabledLabel") || "启用高级模型对话本地计数与预估"}
+        description={
+          t("usageMonitorEnabledDesc") || "通过本地计数和输入框附近的轻量面板，辅助估算当日使用情况"
+        }
+        settingId="usage-monitor-enabled"
+        checked={settings.usageMonitor?.enabled ?? false}
+        onChange={() =>
+          updateNestedSetting("usageMonitor", "enabled", !(settings.usageMonitor?.enabled ?? false))
+        }
+      />
+
+      <SettingRow
+        label={t("usageMonitorDailyLimitLabel") || "每日对话次数预估上限"}
+        description={
+          t("usageMonitorDailyLimitDesc") || "用于计算 80% / 100% 阈值提醒，仅为本地估算值"
+        }
+        settingId="usage-monitor-daily-limit"
+        disabled={!(settings.usageMonitor?.enabled ?? false)}
+        onDisabledClick={() =>
+          showPrerequisiteToast(t("usageMonitorEnabledLabel") || "启用高级模型对话本地计数与预估")
+        }>
+        <NumberInput
+          value={settings.usageMonitor?.dailyLimit ?? 100}
+          onChange={(val) => updateNestedSetting("usageMonitor", "dailyLimit", val)}
+          min={1}
+          max={9999}
+          defaultValue={100}
+          disabled={!(settings.usageMonitor?.enabled ?? false)}
+          style={{ width: "96px" }}
+        />
+      </SettingRow>
+
+      <ToggleRow
+        label={t("usageMonitorAutoResetLabel") || "启用自动归零"}
+        description={
+          t("usageMonitorAutoResetDesc") ||
+          "实验性：按本地日期切换自动归零。由于平台实际重置时间可能变化，默认关闭。"
+        }
+        settingId="usage-monitor-auto-reset"
+        checked={settings.usageMonitor?.autoResetEnabled ?? false}
+        disabled={!(settings.usageMonitor?.enabled ?? false)}
+        onDisabledClick={() =>
+          showPrerequisiteToast(t("usageMonitorEnabledLabel") || "启用高级模型对话本地计数与预估")
+        }
+        onChange={() =>
+          updateNestedSetting(
+            "usageMonitor",
+            "autoResetEnabled",
+            !(settings.usageMonitor?.autoResetEnabled ?? false),
+          )
+        }
+      />
+
+      <UsageHistoryChart siteId={siteId} />
+    </SettingCard>
+  )
 
   return (
     <div>
@@ -469,7 +1015,12 @@ const FeaturesPage: React.FC<FeaturesPageProps> = ({ siteId: _siteId, initialTab
       )}
 
       {/* ========== 提醒 Tab ========== */}
-      {activeTab === FEATURES_TAB_IDS.REMINDER && notificationSettingsCard}
+      {activeTab === FEATURES_TAB_IDS.REMINDER && (
+        <>
+          {notificationSettingsCard}
+          {usageMonitorCard}
+        </>
+      )}
 
       {/* ========== 大纲 Tab ========== */}
       {activeTab === FEATURES_TAB_IDS.OUTLINE && (
