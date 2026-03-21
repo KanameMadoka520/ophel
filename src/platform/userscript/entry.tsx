@@ -1,11 +1,6 @@
 import React from "react"
 import ReactDOM from "react-dom/client"
 
-import { getAdapter } from "~adapters"
-import { App } from "~components/App"
-
-// 显式导入 NetworkMonitor 初始化函数（避免被 tree-shaking 移除）
-import { initNetworkMonitor } from "../../core/network-monitor"
 import brightAlertNotificationSound from "../../../assets/notification-sounds/bright-alert.ogg?inline"
 import glassPingNotificationSound from "../../../assets/notification-sounds/glass-ping.ogg?inline"
 import softChimeNotificationSound from "../../../assets/notification-sounds/soft-chime.ogg?inline"
@@ -15,6 +10,7 @@ import defaultNotificationSound from "../../../assets/notification-sounds/stream
 import mainStyle from "../../style.css?inline"
 import conversationsStyle from "../../styles/conversations.css?inline"
 import settingsStyle from "../../styles/settings.css?inline"
+import themeVariablesStyle from "../../styles/theme-variables.css?inline"
 
 function createMediaObjectUrl(source: string): string {
   if (!source.startsWith("data:")) {
@@ -197,6 +193,8 @@ if (typeof chrome === "undefined" || !chrome.storage) {
   }
 }
 
+console.warn("[Ophel Userscript] Chrome storage polyfill ready")
+
 const chromeStorage = (window as any).chrome?.storage
 if (chromeStorage && !chromeStorage.onChanged) {
   chromeStorage.onChanged = {
@@ -231,6 +229,14 @@ if ((window as any).ophelUserscriptInitialized) {
  * 初始化油猴脚本
  */
 async function init() {
+  console.warn("[Ophel Userscript] Preparing runtime imports after polyfills...")
+
+  const [{ getAdapter }, { App }, { initNetworkMonitor }] = await Promise.all([
+    import("~adapters"),
+    import("~components/App"),
+    import("~core/network-monitor"),
+  ])
+
   const adapter = getAdapter()
 
   if (!adapter) {
@@ -238,8 +244,124 @@ async function init() {
     return
   }
 
+  console.warn(`[Ophel Userscript] Loaded ${adapter.getName()} adapter on:`, window.location.hostname)
+
   // 初始化适配器
   adapter.afterPropertiesSet({})
+
+  let mountObserver: MutationObserver | null = null
+  let mountInterval: number | null = null
+
+  const cleanupMountWatchers = () => {
+    mountObserver?.disconnect()
+    mountObserver = null
+    if (mountInterval !== null) {
+      window.clearInterval(mountInterval)
+      mountInterval = null
+    }
+  }
+
+  const mountUserscriptApp = async () => {
+    try {
+      console.warn("[Ophel Userscript] Preparing shadow host...")
+
+      const shadowHost = document.createElement("div")
+      shadowHost.id = "ophel-userscript-root"
+      shadowHost.style.cssText =
+        "all: initial; display: block; position: fixed; inset: 0; width: 0; height: 0; overflow: visible; pointer-events: none; z-index: 2147483647;"
+
+      const getMountParent = () => document.body || document.documentElement
+
+      const waitForMountParent = async () => {
+        if (getMountParent()) return
+        await new Promise<void>((resolve) => {
+          const observer = new MutationObserver(() => {
+            if (getMountParent()) {
+              observer.disconnect()
+              resolve()
+            }
+          })
+          observer.observe(document.documentElement, { childList: true, subtree: true })
+        })
+      }
+
+      const doMount = () => {
+        const parent = getMountParent()
+        if (!parent) return
+        if (shadowHost.parentElement !== parent) {
+          parent.appendChild(shadowHost)
+          console.warn("[Ophel Userscript] Shadow host mounted")
+        }
+      }
+
+      await waitForMountParent()
+      doMount()
+      ;[250, 600, 1200, 2000, 3500, 5000].forEach((delay) => setTimeout(doMount, delay))
+
+      mountObserver = new MutationObserver(() => {
+        if (!shadowHost.isConnected) {
+          doMount()
+        }
+      })
+      mountObserver.observe(document.documentElement, { childList: true, subtree: true })
+
+      mountInterval = window.setInterval(() => {
+        if (!shadowHost.isConnected) {
+          doMount()
+        }
+      }, 2000)
+
+      if (window.location.hostname.includes("chatglm.cn")) {
+        shadowHost.classList.add("gh-site-chatglm")
+      }
+
+      let shadowRoot: ShadowRoot
+      try {
+        shadowRoot = shadowHost.attachShadow({ mode: "open" })
+        console.warn("[Ophel Userscript] Shadow root attached")
+      } catch (error) {
+        console.error("[Ophel Userscript] attachShadow failed:", error)
+        throw error
+      }
+
+      try {
+        const styleEl = document.createElement("style")
+        const sanitizedMainStyle = mainStyle.replace(
+          /@import\s+["'][^"']*theme-variables\.css["'];?\s*/g,
+          "",
+        )
+        styleEl.textContent = [
+          themeVariablesStyle,
+          sanitizedMainStyle,
+          conversationsStyle,
+          settingsStyle,
+        ].join("\n")
+        shadowRoot.appendChild(styleEl)
+        console.warn("[Ophel Userscript] Styles injected into shadow root")
+      } catch (error) {
+        console.error("[Ophel Userscript] Style injection failed:", error)
+        throw error
+      }
+
+      const container = document.createElement("div")
+      container.id = "ophel-app-container"
+      shadowRoot.appendChild(container)
+
+      try {
+        const root = ReactDOM.createRoot(container)
+        root.render(React.createElement(App))
+        console.warn("[Ophel Userscript] React root rendered")
+      } catch (error) {
+        console.error("[Ophel Userscript] React render failed:", error)
+        throw error
+      }
+    } catch (error) {
+      cleanupMountWatchers()
+      throw error
+    }
+  }
+
+  await mountUserscriptApp()
 
   // 等待 Zustand hydration 完成后初始化核心模块
   const { useSettingsStore, getSettingsState } = await import("~stores/settings-store")
@@ -250,36 +372,70 @@ async function init() {
   const { useClaudeSessionKeysStore } = await import("~stores/claude-sessionkeys-store")
 
   // 等待所有 store hydration 完成
-  const waitForHydration = (store: {
-    getState: () => { _hasHydrated: boolean }
-    subscribe: (fn: (state: { _hasHydrated: boolean }) => void) => () => void
-  }) => {
-    return new Promise<void>((resolve) => {
-      if (store.getState()._hasHydrated) {
-        resolve()
-        return
+  const waitForHydration = (
+    name: string,
+    store: {
+      getState: () => { _hasHydrated: boolean }
+      subscribe: (fn: (state: { _hasHydrated: boolean }) => void) => () => void
+      setState: (partial: Partial<{ _hasHydrated: boolean }>) => void
+    },
+  ) => {
+    if (store.getState()._hasHydrated) {
+      console.warn(`[Ophel Userscript] Store hydrated: ${name}`)
+      return Promise.resolve(true)
+    }
+
+    console.warn(`[Ophel Userscript] Waiting for hydration: ${name}`)
+
+    const hydrationPromise = new Promise<boolean>((resolve) => {
+      let timeoutId: number
+      let resolved = false
+      const finish = (value: boolean) => {
+        if (resolved) return
+        resolved = true
+        window.clearTimeout(timeoutId)
+        resolve(value)
       }
+
       const unsub = store.subscribe((state) => {
         if (state._hasHydrated) {
           unsub()
-          resolve()
+          console.warn(`[Ophel Userscript] Store hydrated: ${name}`)
+          finish(true)
         }
       })
+
+      timeoutId = window.setTimeout(() => {
+        unsub()
+        console.warn(`[Ophel Userscript] Store hydration timeout: ${name}`)
+        // 首次空存储时，persist 可能不会自然结束 hydration。
+        // userscript 环境下这里直接兜底结束 loading，允许默认配置先渲染出来。
+        store.setState({ _hasHydrated: true })
+        finish(false)
+      }, 5000)
     })
+
+    return hydrationPromise
   }
 
-  await Promise.all([
-    waitForHydration(useSettingsStore),
-    waitForHydration(useConversationsStore),
-    waitForHydration(useFoldersStore),
-    waitForHydration(useTagsStore),
-    waitForHydration(usePromptsStore),
-    waitForHydration(useClaudeSessionKeysStore),
+  const hydrationResults = await Promise.all([
+    waitForHydration("settings", useSettingsStore),
+    waitForHydration("conversations", useConversationsStore),
+    waitForHydration("folders", useFoldersStore),
+    waitForHydration("tags", useTagsStore),
+    waitForHydration("prompts", usePromptsStore),
+    waitForHydration("claudeSessionKeys", useClaudeSessionKeysStore),
   ])
+
+  if (hydrationResults.includes(false)) {
+    console.warn("[Ophel Userscript] Continuing initialization with partially hydrated stores")
+  }
 
   // 获取用户设置
   const settings = getSettingsState()
   const siteId = adapter.getSiteId()
+
+  console.warn("[Ophel Userscript] Initializing core modules...")
 
   // ========== 初始化所有核心模块（使用共享模块） ==========
   const { initCoreModules, subscribeModuleUpdates, initUrlChangeObserver } = await import(
@@ -288,11 +444,17 @@ async function init() {
 
   const ctx = { adapter, settings, siteId }
 
-  // 初始化所有模块
-  await initCoreModules(ctx)
+  try {
+    await initCoreModules(ctx)
+    console.warn("[Ophel Userscript] Core modules initialized")
+  } catch (error) {
+    console.error("[Ophel Userscript] Core module initialization failed:", error)
+    throw error
+  }
 
   // 初始化 NetworkMonitor 消息监听器（必须显式调用以避免 tree-shaking）
   initNetworkMonitor()
+  console.warn("[Ophel Userscript] Network monitor initialized")
 
   // 订阅设置变化
   subscribeModuleUpdates(ctx)
@@ -300,61 +462,7 @@ async function init() {
   // 初始化 URL 变化监听 (SPA 导航)
   initUrlChangeObserver(ctx)
 
-  // 创建 Shadow DOM 容器
-  const shadowHost = document.createElement("div")
-  shadowHost.id = "ophel-userscript-root"
-  shadowHost.style.cssText = "all: initial; position: fixed; z-index: 2147483647;"
-
-  // 延迟挂载（等待页面稳定）
-  const doMount = () => {
-    if (!shadowHost.parentElement) {
-      document.body.appendChild(shadowHost)
-    }
-  }
-
-  // Next.js 站点需要延迟挂载
-  const hostname = window.location.hostname
-  if (hostname.includes("chatglm.cn")) {
-    shadowHost.classList.add("gh-site-chatglm")
-  }
-  const needsDelayedMount =
-    hostname.includes("chatgpt.com") ||
-    hostname.includes("chat.openai.com") ||
-    hostname.includes("grok.com") ||
-    hostname.includes("claude.ai") ||
-    hostname.includes("deepseek.com")
-
-  if (needsDelayedMount) {
-    const delays = [500, 1000, 2000, 3000]
-    delays.forEach((delay) => setTimeout(doMount, delay))
-
-    // MutationObserver 持续监控
-    const observer = new MutationObserver(() => {
-      if (!shadowHost.parentElement) {
-        doMount()
-      }
-    })
-    observer.observe(document.body, { childList: true, subtree: false })
-  } else {
-    doMount()
-  }
-
-  // 创建 Shadow Root
-  const shadowRoot = shadowHost.attachShadow({ mode: "open" })
-
-  // 将 CSS 注入到 Shadow DOM 内部
-  const styleEl = document.createElement("style")
-  styleEl.textContent = [mainStyle, conversationsStyle, settingsStyle].join("\n")
-  shadowRoot.appendChild(styleEl)
-
-  // 创建 React 容器
-  const container = document.createElement("div")
-  container.id = "ophel-app-container"
-  shadowRoot.appendChild(container)
-
-  // 挂载 React 应用
-  const root = ReactDOM.createRoot(container)
-  root.render(React.createElement(App))
+  window.addEventListener("unload", cleanupMountWatchers)
 }
 
 // 启动

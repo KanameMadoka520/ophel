@@ -87,7 +87,7 @@ export const useClaudeSessionKeysStore = create<SessionKeysStore>()(
         currentKeyId: state.currentKeyId,
       }),
       onRehydrateStorage: () => (state) => {
-        state?.setHasHydrated(true)
+        useClaudeSessionKeysStore.setState({ _hasHydrated: true })
       },
     },
   ),

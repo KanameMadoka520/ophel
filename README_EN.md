@@ -91,6 +91,7 @@
 - 🔧 **UI Optimization** — Widescreen mode, page & bubble width control, sidebar layout
 - 📖 **Reading Experience** — Scroll lock, reading history restore, Markdown fixes
 - ⚡ **Productivity Tools** — Shortcuts, model lock, tab auto-rename, notifications
+- 📊 **Usage Estimates** — Optional local usage counter, token estimates, and history chart
 - 🎭 **Claude Enhancement** — Session Key management, multi-account switching
 - 🔒 **Privacy First** — Local storage, WebDAV sync, no data collection
 

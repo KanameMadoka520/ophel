@@ -93,7 +93,7 @@ export const useReadingHistoryStore = create<ReadingHistoryState>()(
         lastCleanupRun: state.lastCleanupRun,
       }),
       onRehydrateStorage: () => (state) => {
-        state?.setHasHydrated(true)
+        useReadingHistoryStore.setState({ _hasHydrated: true })
       },
     },
   ),

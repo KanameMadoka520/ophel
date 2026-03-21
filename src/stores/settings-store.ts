@@ -157,7 +157,9 @@ export const useSettingsStore = create<SettingsState>()(
             useSettingsStore.setState({ settings: normalizedSettings })
           }
         }
-        state?.setHasHydrated(true)
+        // 首次空存储时，persist 可能不会把 state 实例传入回调。
+        // 这里直接用 store.setState 兜底，确保 userscript / extension 都能结束 hydration。
+        useSettingsStore.setState({ _hasHydrated: true })
       },
     },
   ),

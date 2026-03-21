@@ -147,7 +147,7 @@ export const useConversationsStore = create<ConversationsState>()(
         lastUsedFolderId: state.lastUsedFolderId,
       }),
       onRehydrateStorage: () => (state) => {
-        state?.setHasHydrated(true)
+        useConversationsStore.setState({ _hasHydrated: true })
       },
     },
   ),

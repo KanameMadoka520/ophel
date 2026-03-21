@@ -30,6 +30,7 @@ export type UsageHistoryMetric =
   | "count"
   | "requestTokens"
   | "roundTripTokens"
+  | "loadedConversationTokens"
   | "loadedOutputTokens"
 
 export interface UsageHistoryBucket {
@@ -40,7 +41,9 @@ export interface UsageHistoryBucket {
   count: number
   requestTokens: number
   roundTripTokens: number
+  loadedConversationTokens: number
   loadedOutputTokens: number
+  maxLoadedConversationTokens: number
   maxRequestTokens: number
   maxRoundTripTokens: number
   maxLoadedOutputTokens: number
@@ -227,7 +230,11 @@ const formatMonthLabel = (date: Date): string =>
 export const getUsageMetricValue = (
   bucket: Pick<
     UsageHistoryBucket,
-    "count" | "requestTokens" | "roundTripTokens" | "loadedOutputTokens"
+    | "count"
+    | "requestTokens"
+    | "roundTripTokens"
+    | "loadedConversationTokens"
+    | "loadedOutputTokens"
   >,
   metric: UsageHistoryMetric,
 ): number => {
@@ -236,6 +243,8 @@ export const getUsageMetricValue = (
       return bucket.requestTokens
     case "roundTripTokens":
       return bucket.roundTripTokens
+    case "loadedConversationTokens":
+      return bucket.loadedConversationTokens
     case "loadedOutputTokens":
       return bucket.loadedOutputTokens
     case "count":
@@ -249,6 +258,10 @@ export function aggregateUsageEvents(
   granularity: UsageHistoryGranularity,
   now = new Date(),
 ): UsageHistoryBucket[] {
+  // 图表固定展示一个滚动窗口：
+  // - 小时：最近 24 小时
+  // - 天：最近 30 天
+  // - 月：最近 12 个月
   const bucketCount = granularity === "hour" ? 24 : granularity === "day" ? 30 : 12
   const buckets: UsageHistoryBucket[] = []
   const bucketMap = new Map<string, UsageHistoryBucket>()
@@ -289,7 +302,9 @@ export function aggregateUsageEvents(
       count: 0,
       requestTokens: 0,
       roundTripTokens: 0,
+      loadedConversationTokens: 0,
       loadedOutputTokens: 0,
+      maxLoadedConversationTokens: 0,
       maxRequestTokens: 0,
       maxRoundTripTokens: 0,
       maxLoadedOutputTokens: 0,
@@ -310,10 +325,16 @@ export function aggregateUsageEvents(
 
     const bucket = bucketMap.get(key)
     if (!bucket) return
+    // 一个时间桶里同时保留总量与最大单次值，供图表 tooltip 展示“总量 + 峰值”。
     bucket.count += event.countDelta
     bucket.requestTokens += event.requestTokens
     bucket.roundTripTokens += event.roundTripTokens
+    bucket.loadedConversationTokens += event.loadedConversationTokens
     bucket.loadedOutputTokens += event.loadedOutputTokens
+    bucket.maxLoadedConversationTokens = Math.max(
+      bucket.maxLoadedConversationTokens,
+      event.loadedConversationTokens,
+    )
     bucket.maxRequestTokens = Math.max(bucket.maxRequestTokens, event.requestTokens)
     bucket.maxRoundTripTokens = Math.max(bucket.maxRoundTripTokens, event.roundTripTokens)
     bucket.maxLoadedOutputTokens = Math.max(bucket.maxLoadedOutputTokens, event.loadedOutputTokens)

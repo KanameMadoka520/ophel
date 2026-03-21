@@ -3,12 +3,12 @@
  * 包含：标签页、提醒、内容处理、大纲、会话、模型锁定、阅读历史
  * 使用顶部 Tab 切换
  */
-import React, { useEffect, useState } from "react"
+import React, { useCallback, useEffect, useState } from "react"
 
 import { getAdapter } from "~adapters"
 import { FeaturesIcon } from "~components/icons"
 import { Button, NumberInput } from "~components/ui"
-import { FEATURES_TAB_IDS, NOTIFICATION_SOUND_PRESETS } from "~constants"
+import { FEATURES_TAB_IDS, NOTIFICATION_SOUND_PRESETS, SITE_IDS } from "~constants"
 import { platform } from "~platform"
 import { useSettingsStore } from "~stores/settings-store"
 import { t } from "~utils/i18n"
@@ -83,27 +83,48 @@ const LazyInput: React.FC<LazyInputProps> = ({
 const UsageHistoryChart: React.FC<{ siteId: string }> = ({ siteId }) => {
   const [granularity, setGranularity] = useState<UsageHistoryGranularity>("day")
   const [metric, setMetric] = useState<UsageHistoryMetric>("requestTokens")
+  const [selectedSiteId, setSelectedSiteId] = useState<string>(
+    siteId === "_default" ? "all" : siteId,
+  )
   const [buckets, setBuckets] = useState<UsageHistoryBucket[]>([])
   const [loading, setLoading] = useState(true)
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null)
   const scrollRef = React.useRef<HTMLDivElement | null>(null)
-  const currentCid = React.useMemo(() => {
-    if (siteId === "_default") return undefined
-    return getAdapter()?.getCurrentCid?.() || undefined
-  }, [siteId])
+
+  const siteOptions = React.useMemo(
+    () => [
+      { id: "all", label: t("usageMonitorChartSiteAll") || "全部站点" },
+      { id: SITE_IDS.GEMINI, label: "Gemini" },
+      { id: SITE_IDS.GEMINI_ENTERPRISE, label: "Gemini Enterprise" },
+      { id: SITE_IDS.CHATGPT, label: "ChatGPT" },
+      { id: SITE_IDS.CLAUDE, label: "Claude" },
+      { id: SITE_IDS.GROK, label: "Grok" },
+      { id: SITE_IDS.AISTUDIO, label: "AI Studio" },
+      { id: SITE_IDS.DEEPSEEK, label: "DeepSeek" },
+      { id: SITE_IDS.DOUBAO, label: "Doubao" },
+      { id: SITE_IDS.CHATGLM, label: "ChatGLM" },
+      { id: SITE_IDS.KIMI, label: "Kimi" },
+      { id: SITE_IDS.QIANWEN, label: "Qianwen" },
+      { id: SITE_IDS.ZAI, label: "Z.ai" },
+    ],
+    [],
+  )
+
+  const selectedSiteLabel =
+    siteOptions.find((site) => site.id === selectedSiteId)?.label ||
+    (t("usageMonitorChartSiteAll") || "全部站点")
 
   const refresh = React.useCallback(async () => {
     setLoading(true)
     try {
       const events = await getUsageEvents({
-        siteId: siteId === "_default" ? undefined : siteId,
-        cid: currentCid,
+        siteId: selectedSiteId === "all" ? undefined : selectedSiteId,
       })
       setBuckets(aggregateUsageEvents(events, granularity))
     } finally {
       setLoading(false)
     }
-  }, [currentCid, granularity, siteId])
+  }, [granularity, selectedSiteId])
 
   useEffect(() => {
     void refresh()
@@ -135,6 +156,8 @@ const UsageHistoryChart: React.FC<{ siteId: string }> = ({ siteId }) => {
       ? t("usageMonitorChartMetricRequest") || "请求 Tokens"
       : metric === "roundTripTokens"
         ? t("usageMonitorChartMetricRoundTrip") || "往返 Tokens"
+        : metric === "loadedConversationTokens"
+          ? t("usageMonitorChartMetricConversation") || "已加载对话 Tokens"
         : metric === "loadedOutputTokens"
           ? t("usageMonitorChartMetricOutput") || "输出 Tokens"
           : t("usageMonitorChartMetricCount") || "次数"
@@ -260,6 +283,29 @@ const UsageHistoryChart: React.FC<{ siteId: string }> = ({ siteId }) => {
             {t("usageMonitorChartDesc") ||
               "基于本地记录的发送事件聚合，可按小时、天、月查看次数或粗估 Tokens。"}
           </div>
+          <div
+            style={{
+              marginTop: "8px",
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "8px",
+              flexWrap: "wrap",
+            }}>
+            <span style={{ fontSize: "12px", color: "var(--gh-text-secondary, #6b7280)" }}>
+              {t("usageMonitorChartSiteLabel") || "统计站点"}
+            </span>
+            <select
+              className="settings-select"
+              value={selectedSiteId}
+              onChange={(e) => setSelectedSiteId(e.target.value)}
+              style={{ minWidth: "170px" }}>
+              {siteOptions.map((site) => (
+                <option key={site.id} value={site.id}>
+                  {site.label}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
         <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "flex-start" }}>
           <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
@@ -285,6 +331,10 @@ const UsageHistoryChart: React.FC<{ siteId: string }> = ({ siteId }) => {
                 ["count", t("usageMonitorChartMetricCount") || "次数"],
                 ["requestTokens", t("usageMonitorChartMetricRequest") || "请求 Tokens"],
                 ["roundTripTokens", t("usageMonitorChartMetricRoundTrip") || "往返 Tokens"],
+                [
+                  "loadedConversationTokens",
+                  t("usageMonitorChartMetricConversation") || "已加载对话 Tokens",
+                ],
                 ["loadedOutputTokens", t("usageMonitorChartMetricOutput") || "输出 Tokens"],
               ] as Array<[UsageHistoryMetric, string]>
             ).map(([value, label]) => (
@@ -313,6 +363,10 @@ const UsageHistoryChart: React.FC<{ siteId: string }> = ({ siteId }) => {
           <strong style={{ color: "var(--gh-text, #374151)" }}>{latestValue}</strong>
         </div>
         <div style={{ fontSize: "12px", color: "var(--gh-text-secondary, #6b7280)" }}>
+          <span>{t("usageMonitorChartCurrentSite") || "当前统计站点"}: </span>
+          <strong style={{ color: "var(--gh-text, #374151)" }}>{selectedSiteLabel}</strong>
+        </div>
+        <div style={{ fontSize: "12px", color: "var(--gh-text-secondary, #6b7280)" }}>
           <span>MAX: </span>
           <strong style={{ color: "var(--gh-text, #374151)" }}>{maxValue}</strong>
         </div>
@@ -327,6 +381,7 @@ const UsageHistoryChart: React.FC<{ siteId: string }> = ({ siteId }) => {
           marginTop: "4px",
         }}
         onMouseLeave={() => setHoveredIndex(null)}>
+        {/* tooltip 提升到滚动容器外层渲染，避免被横向滚动区域裁切。 */}
         <div
           ref={scrollRef}
           style={{
@@ -393,20 +448,21 @@ const UsageHistoryChart: React.FC<{ siteId: string }> = ({ siteId }) => {
                 />
               )}
 
-              {buckets.map((bucket, index) => {
-                const point = points[index]
-                const previous = points[index - 1]
-                const next = points[index + 1]
-                const xStart = previous ? (previous.x + point.x) / 2 : padding.left
-                const xEnd = next ? (point.x + next.x) / 2 : chartWidth - padding.right
+            {buckets.map((bucket, index) => {
+              const point = points[index]
+              const previous = points[index - 1]
+              const next = points[index + 1]
+              const xStart = previous ? (previous.x + point.x) / 2 : padding.left
+              const xEnd = next ? (point.x + next.x) / 2 : chartWidth - padding.right
 
-                return (
-                  <rect
-                    key={`${bucket.key}-hover`}
-                    x={xStart}
-                    y={padding.top}
-                    width={Math.max(12, xEnd - xStart)}
-                    height={innerHeight}
+              return (
+                <rect
+                  key={`${bucket.key}-hover`}
+                  // 使用透明 hover 区域覆盖整个 bucket 宽度，提升折线图在稀疏点位上的悬浮命中率。
+                  x={xStart}
+                  y={padding.top}
+                  width={Math.max(12, xEnd - xStart)}
+                  height={innerHeight}
                     fill="transparent"
                     pointerEvents="all"
                     onMouseEnter={() => setHoveredIndex(index)}
@@ -504,9 +560,17 @@ const UsageHistoryChart: React.FC<{ siteId: string }> = ({ siteId }) => {
               </span>
               <strong>{hoveredBucket.roundTripTokens}</strong>
               <span style={{ color: chartColors.axis }}>
+                {t("usageMonitorChartMetricConversation") || "已加载对话 Tokens"}
+              </span>
+              <strong>{hoveredBucket.loadedConversationTokens}</strong>
+              <span style={{ color: chartColors.axis }}>
                 {t("usageMonitorChartMetricOutput") || "输出 Tokens"}
               </span>
               <strong>{hoveredBucket.loadedOutputTokens}</strong>
+              <span style={{ color: chartColors.axis }}>
+                {t("usageMonitorChartMaxConversation") || "最大单次已加载对话"}
+              </span>
+              <strong>{hoveredBucket.maxLoadedConversationTokens}</strong>
               <span style={{ color: chartColors.axis }}>
                 {t("usageMonitorChartMaxRequest") || "最大单次请求"}
               </span>
@@ -543,14 +607,14 @@ const FeaturesPage: React.FC<FeaturesPageProps> = ({ siteId, initialTab }) => {
   const previewAudioRef = React.useRef<HTMLAudioElement | null>(null)
   const { settings, updateDeepSetting, updateNestedSetting } = useSettingsStore()
 
-  const clearPreviewAudioHandlers = () => {
+  const clearPreviewAudioHandlers = useCallback(() => {
     if (!previewAudioRef.current) return
 
     previewAudioRef.current.onended = null
     previewAudioRef.current.onerror = null
-  }
+  }, [])
 
-  const stopNotificationSoundPreview = () => {
+  const stopNotificationSoundPreview = useCallback(() => {
     const audio = previewAudioRef.current
     if (!audio) {
       setIsPreviewPlaying(false)
@@ -561,7 +625,7 @@ const FeaturesPage: React.FC<FeaturesPageProps> = ({ siteId, initialTab }) => {
     audio.pause()
     audio.currentTime = 0
     setIsPreviewPlaying(false)
-  }
+  }, [clearPreviewAudioHandlers])
 
   useEffect(() => {
     if (initialTab) {
@@ -573,19 +637,19 @@ const FeaturesPage: React.FC<FeaturesPageProps> = ({ siteId, initialTab }) => {
     return () => {
       stopNotificationSoundPreview()
     }
-  }, [])
+  }, [stopNotificationSoundPreview])
 
   useEffect(() => {
     if (activeTab !== FEATURES_TAB_IDS.REMINDER) {
       stopNotificationSoundPreview()
     }
-  }, [activeTab])
+  }, [activeTab, stopNotificationSoundPreview])
 
   useEffect(() => {
     if (!settings?.tab?.showNotification || !settings.tab.notificationSound) {
       stopNotificationSoundPreview()
     }
-  }, [settings?.tab?.notificationSound, settings?.tab?.showNotification])
+  }, [settings?.tab?.notificationSound, settings?.tab?.showNotification, stopNotificationSoundPreview])
 
   useEffect(() => {
     const previewAudio = previewAudioRef.current
@@ -862,6 +926,22 @@ const FeaturesPage: React.FC<FeaturesPageProps> = ({ siteId, initialTab }) => {
           updateNestedSetting("usageMonitor", "enabled", !(settings.usageMonitor?.enabled ?? false))
         }
       />
+
+      <div
+        style={{
+          marginTop: "-2px",
+          marginBottom: "12px",
+          padding: "10px 12px",
+          borderRadius: "10px",
+          border: "1px solid var(--gh-border-active, #6366f1)",
+          background: "var(--gh-user-query-bg, rgba(66, 133, 244, 0.08))",
+          color: "var(--gh-text, #374151)",
+          fontSize: "12px",
+          lineHeight: 1.55,
+        }}>
+        {t("usageMonitorExplainRender") ||
+          "面板会显示在当前输入区上方并为正文预留空间；如果开启后出现渲染异常，请刷新页面即可。"}
+      </div>
 
       <SettingRow
         label={t("usageMonitorDailyLimitLabel") || "每日对话次数预估上限"}

@@ -83,7 +83,7 @@ export const useTagsStore = create<TagsState>()(
       storage: createJSONStorage(() => chromeStorageAdapter),
       partialize: (state) => ({ tags: state.tags }),
       onRehydrateStorage: () => (state) => {
-        state?.setHasHydrated(true)
+        useTagsStore.setState({ _hasHydrated: true })
       },
     },
   ),

@@ -186,6 +186,8 @@ export const en = {
     "Behavior: it only stores counts locally and renders a lightweight panel near the composer. It does not write any extra state to the site's backend.",
   usageMonitorExplainReset:
     "Reset: platform quota reset times may drift and are not always tied to local midnight. Auto reset is off by default; manual reset is the safer default.",
+  usageMonitorExplainRender:
+    "The panel is rendered above the current composer and reserves space for the page content. If rendering looks abnormal right after enabling it, refreshing the page should stabilize the layout.",
   usageMonitorEnabledLabel: "Enable local advanced-model counter and estimate",
   usageMonitorEnabledDesc:
     "Use a lightweight local panel near the composer to estimate usage for the current account without changing site behavior.",
@@ -214,11 +216,16 @@ export const en = {
   usageMonitorChartHour: "Hour",
   usageMonitorChartDay: "Day",
   usageMonitorChartMonth: "Month",
+  usageMonitorChartSiteLabel: "Site",
+  usageMonitorChartSiteAll: "All Sites",
+  usageMonitorChartCurrentSite: "Current Site",
   usageMonitorChartMetricCount: "Count",
   usageMonitorChartMetricRequest: "Request Tokens",
   usageMonitorChartMetricRoundTrip: "Round Trip",
+  usageMonitorChartMetricConversation: "Loaded Context",
   usageMonitorChartMetricOutput: "Output Tokens",
   usageMonitorChartDelta: "vs previous",
+  usageMonitorChartMaxConversation: "Max loaded context",
   usageMonitorChartMaxRequest: "Max single request",
   usageMonitorChartMaxRoundTrip: "Max single round trip",
   usageMonitorChartMaxOutput: "Max single output",

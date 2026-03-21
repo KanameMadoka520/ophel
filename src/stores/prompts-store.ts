@@ -111,7 +111,7 @@ export const usePromptsStore = create<PromptsState>()(
       storage: createJSONStorage(() => chromeStorageAdapter),
       partialize: (state) => ({ prompts: state.prompts }),
       onRehydrateStorage: () => (state) => {
-        state?.setHasHydrated(true)
+        usePromptsStore.setState({ _hasHydrated: true })
       },
     },
   ),

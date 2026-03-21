@@ -124,7 +124,7 @@ export const useFoldersStore = create<FoldersState>()(
         }
       },
       onRehydrateStorage: () => (state) => {
-        state?.setHasHydrated(true)
+        useFoldersStore.setState({ _hasHydrated: true })
       },
     },
   ),
