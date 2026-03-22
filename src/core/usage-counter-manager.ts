@@ -751,7 +751,9 @@ export class UsageCounterManager {
   private resolveEditor(): HTMLElement | null {
     const candidates = this.collectEditorCandidates()
     if (candidates.length > 0) {
-      return candidates.sort((a, b) => this.scoreEditorCandidate(b) - this.scoreEditorCandidate(a))[0]
+      return candidates.sort(
+        (a, b) => this.scoreEditorCandidate(b) - this.scoreEditorCandidate(a),
+      )[0]
     }
 
     return this.adapter.findTextarea() || this.adapter.getTextareaElement()
@@ -800,13 +802,14 @@ export class UsageCounterManager {
     }
 
     // 聊天输入区通常位于页面较靠下的位置；当未聚焦时，优先选择更接近视口底部的输入框。
-    score += rect.top / Math.max(window.innerHeight, 1) * 120
+    score += (rect.top / Math.max(window.innerHeight, 1)) * 120
 
     const ariaLabel = (editor.getAttribute("aria-label") || "").toLowerCase()
-    const placeholder =
-      (editor.getAttribute("placeholder") ||
-        (editor as HTMLInputElement).placeholder ||
-        "").toLowerCase()
+    const placeholder = (
+      editor.getAttribute("placeholder") ||
+      (editor as HTMLInputElement).placeholder ||
+      ""
+    ).toLowerCase()
     const signalText = `${ariaLabel} ${placeholder}`
     if (/prompt|message|chat|发送|输入|ask|query/.test(signalText)) {
       score += 120
@@ -932,7 +935,11 @@ export class UsageCounterManager {
       const parentStyle = window.getComputedStyle(parent)
       const isRowFlex =
         parentStyle.display.includes("flex") && !parentStyle.flexDirection.startsWith("column")
-      if (isRowFlex && parent.contains(editor) && (!submitButton || parent.contains(submitButton))) {
+      if (
+        isRowFlex &&
+        parent.contains(editor) &&
+        (!submitButton || parent.contains(submitButton))
+      ) {
         const parentRect = parent.getBoundingClientRect()
         const parentArea = Math.max(1, parentRect.width * parentRect.height)
         // 仅在父级也是一个比较局部的输入条容器时，才允许把挂载点提升到父级。

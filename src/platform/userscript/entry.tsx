@@ -244,7 +244,10 @@ async function init() {
     return
   }
 
-  console.warn(`[Ophel Userscript] Loaded ${adapter.getName()} adapter on:`, window.location.hostname)
+  console.warn(
+    `[Ophel Userscript] Loaded ${adapter.getName()} adapter on:`,
+    window.location.hostname,
+  )
 
   // 初始化适配器
   adapter.afterPropertiesSet({})
