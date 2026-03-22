@@ -21,7 +21,7 @@ const USERSCRIPT_DESCRIPTION_MAX = 500
 
 const userscriptMetadata: UserscriptMetadata = {
   name: {
-    "": "Ophel Atlas - AI对话导航整理：Gemini、AI Studio、ChatGPT、Claude、Grok、DeepSeek、Qwen、豆包、Kimi、ChatGLM、Z.ai",
+    "": "Ophel Atlas - AI 对话结构化与导航工具, 全能AI助手 (支持 Gemini, ChatGPT, Claude, Grok, AI Studio, 豆包)",
     en: "Ophel Atlas Nav · Gemini, AI Studio, ChatGPT, Claude, Grok, DeepSeek, Qwen, Doubao, Kimi, GLM/Z.ai",
     "zh-CN": "Ophel Atlas - AI对话导航整理：Gemini、AI Studio、ChatGPT、Claude、Grok、DeepSeek、Qwen、豆包、Kimi、ChatGLM、Z.ai",
     "zh-TW": "Ophel Atlas - AI對話導覽整理：Gemini、AI Studio、ChatGPT、Claude、Grok、DeepSeek、Qwen、豆包、Kimi、ChatGLM、Z.ai",
