@@ -169,6 +169,60 @@ export const es = {
   // ======== Common Buttons/Labels ========
   tabBehaviorTitle: "Comportamiento",
   notificationSettings: "Acciones al Finalizar",
+  usageMonitorSettingsTitle: "Contador local de uso y estimación",
+  usageMonitorSettingsDesc:
+    "Muestra recuentos locales de envíos, progreso de umbrales y estimaciones aproximadas de tokens cerca del cuadro de entrada.",
+  usageMonitorExplainLocalOnly:
+    "Nota: esto es solo una estimación local. La extensión no conoce la cuota oficial restante ni el límite real del servidor.",
+  usageMonitorExplainNoBackend:
+    "Comportamiento: solo guarda los contadores localmente y muestra un panel ligero cerca del cuadro de redacción. No escribe estado adicional en el backend del sitio.",
+  usageMonitorExplainReset:
+    "Reinicio: las horas reales de reinicio de la plataforma pueden variar y no siempre coinciden con la medianoche local. El reinicio automático está desactivado por defecto; el reinicio manual es la opción más segura.",
+  usageMonitorExplainRender:
+    "El panel se muestra encima del cuadro de redacción actual y reserva espacio para el contenido de la página. Si el renderizado se ve extraño justo después de activarlo, recargar la página debería estabilizar el diseño.",
+  usageMonitorEnabledLabel: "Activar contador y estimación local para modelos avanzados",
+  usageMonitorEnabledDesc:
+    "Usa un panel local ligero cerca del cuadro de redacción para estimar el uso de la cuenta actual sin cambiar el comportamiento del sitio.",
+  usageMonitorDailyLimitLabel: "Límite diario estimado de conversaciones",
+  usageMonitorDailyLimitDesc:
+    "Se usa para los umbrales de aviso del 80 % / 100 %. Esto es solo una estimación local.",
+  usageMonitorAutoResetLabel: "Activar reinicio automático",
+  usageMonitorAutoResetDesc:
+    "Experimental: reinicia automáticamente cuando cambia la fecha local. Está desactivado por defecto porque las horas reales de reinicio de la plataforma pueden variar.",
+  usageMonitorTodayUsed: "Usado hoy",
+  usageMonitorLocallyUsed: "Contado localmente",
+  usageMonitorInputChars: "Caracteres de entrada",
+  usageMonitorContextChars: "Caracteres de contexto",
+  usageMonitorInputTokens: "Entrada estimada",
+  usageMonitorLoadedConversationTokens: "Contexto cargado",
+  usageMonitorLoadedOutputTokens: "Salida cargada",
+  usageMonitorRequestTokens: "Solicitud actual",
+  usageMonitorRoundTripTokens: "Ida y vuelta",
+  usageMonitorRoundTripDesc:
+    "Ida y vuelta = el costo total estimado de la solicitud actual más una respuesta esperada.",
+  usageMonitorResetButton: "Reiniciar",
+  usageMonitorManualMode: "Modo manual",
+  usageMonitorChartTitle: "Historial de uso",
+  usageMonitorChartDesc:
+    "Agregado a partir de eventos de envío locales. Consulta recuentos o tokens estimados por hora, día o mes.",
+  usageMonitorChartHour: "Hora",
+  usageMonitorChartDay: "Día",
+  usageMonitorChartMonth: "Mes",
+  usageMonitorChartSiteLabel: "Sitio",
+  usageMonitorChartSiteAll: "Todos los sitios",
+  usageMonitorChartCurrentSite: "Sitio actual",
+  usageMonitorChartMetricCount: "Cantidad",
+  usageMonitorChartMetricRequest: "Tokens de solicitud",
+  usageMonitorChartMetricRoundTrip: "Ida y vuelta",
+  usageMonitorChartMetricConversation: "Contexto cargado",
+  usageMonitorChartMetricOutput: "Tokens de salida",
+  usageMonitorChartDelta: "vs anterior",
+  usageMonitorChartMaxConversation: "Máx. contexto cargado",
+  usageMonitorChartMaxRequest: "Máx. solicitud individual",
+  usageMonitorChartMaxRoundTrip: "Máx. ida y vuelta",
+  usageMonitorChartMaxOutput: "Máx. salida individual",
+  usageMonitorChartScrollHint: "Desplázate horizontalmente para ver toda la línea de tiempo",
+  usageMonitorChartEmpty: "Aún no hay historial",
   enablePrerequisiteToast: 'Activa primero "{setting}"',
   privacyModeTitle: "Modo Privado",
   collapsedButtonsOrderTitle: "Botones Rápidos",

@@ -169,6 +169,60 @@ export const de = {
   // ======== Common Buttons/Labels ========
   tabBehaviorTitle: "Verhalten",
   notificationSettings: "Aktionen nach Abschluss",
+  usageMonitorSettingsTitle: "Lokaler Nutzungszähler & Schätzung",
+  usageMonitorSettingsDesc:
+    "Zeigt lokale Sendungszahlen, Schwellenfortschritt und grobe Token-Schätzungen in der Nähe des Eingabefelds an.",
+  usageMonitorExplainLocalOnly:
+    "Hinweis: Dies ist nur eine lokale Schätzung. Die Erweiterung kennt weder das offizielle Restkontingent noch das tatsächliche serverseitige Limit.",
+  usageMonitorExplainNoBackend:
+    "Verhalten: Zähler werden nur lokal gespeichert und ein leichtes Panel neben dem Eingabebereich angezeigt. Es wird kein zusätzlicher Status an das Backend der Website geschrieben.",
+  usageMonitorExplainReset:
+    "Zurücksetzen: Die tatsächlichen Reset-Zeiten der Plattform können abweichen und sind nicht immer an Mitternacht gebunden. Automatisches Zurücksetzen ist standardmäßig deaktiviert; manuelles Zurücksetzen ist die sicherere Voreinstellung.",
+  usageMonitorExplainRender:
+    "Das Panel wird über dem aktuellen Eingabebereich gerendert und reserviert Platz für den Seiteninhalt. Wenn die Darstellung direkt nach dem Aktivieren ungewöhnlich aussieht, sollte ein Neuladen der Seite das Layout stabilisieren.",
+  usageMonitorEnabledLabel: "Lokalen Zähler und Schätzer für fortgeschrittene Modelle aktivieren",
+  usageMonitorEnabledDesc:
+    "Verwendet ein leichtes lokales Panel nahe dem Eingabebereich, um die Nutzung des aktuellen Kontos zu schätzen, ohne das Verhalten der Website zu ändern.",
+  usageMonitorDailyLimitLabel: "Geschätztes tägliches Gesprächslimit",
+  usageMonitorDailyLimitDesc:
+    "Wird für die Warnschwellen bei 80 % / 100 % verwendet. Dies ist nur eine lokale Schätzung.",
+  usageMonitorAutoResetLabel: "Automatisches Zurücksetzen aktivieren",
+  usageMonitorAutoResetDesc:
+    "Experimentell: Setzt automatisch zurück, wenn sich das lokale Datum ändert. Standardmäßig deaktiviert, da die tatsächlichen Reset-Zeiten der Plattform variieren können.",
+  usageMonitorTodayUsed: "Heute verwendet",
+  usageMonitorLocallyUsed: "Lokal gezählt",
+  usageMonitorInputChars: "Eingegebene Zeichen",
+  usageMonitorContextChars: "Kontextzeichen",
+  usageMonitorInputTokens: "Geschätzte Eingabe",
+  usageMonitorLoadedConversationTokens: "Geladener Kontext",
+  usageMonitorLoadedOutputTokens: "Geladene Ausgabe",
+  usageMonitorRequestTokens: "Aktuelle Anfrage",
+  usageMonitorRoundTripTokens: "Hin- und Rückweg",
+  usageMonitorRoundTripDesc:
+    "Hin- und Rückweg = geschätzte Gesamtkosten der aktuellen Anfrage plus einer erwarteten Antwort.",
+  usageMonitorResetButton: "Zurücksetzen",
+  usageMonitorManualMode: "Manueller Modus",
+  usageMonitorChartTitle: "Nutzungsverlauf",
+  usageMonitorChartDesc:
+    "Aus lokalen Sendeereignissen aggregiert. Zeigt Anzahl oder geschätzte Tokens nach Stunde, Tag oder Monat.",
+  usageMonitorChartHour: "Stunde",
+  usageMonitorChartDay: "Tag",
+  usageMonitorChartMonth: "Monat",
+  usageMonitorChartSiteLabel: "Website",
+  usageMonitorChartSiteAll: "Alle Websites",
+  usageMonitorChartCurrentSite: "Aktuelle Website",
+  usageMonitorChartMetricCount: "Anzahl",
+  usageMonitorChartMetricRequest: "Anfrage-Tokens",
+  usageMonitorChartMetricRoundTrip: "Hin- und Rückweg",
+  usageMonitorChartMetricConversation: "Geladener Kontext",
+  usageMonitorChartMetricOutput: "Ausgabe-Tokens",
+  usageMonitorChartDelta: "ggü. vorher",
+  usageMonitorChartMaxConversation: "Max. geladener Kontext",
+  usageMonitorChartMaxRequest: "Max. einzelne Anfrage",
+  usageMonitorChartMaxRoundTrip: "Max. einzelner Hin- und Rückweg",
+  usageMonitorChartMaxOutput: "Max. einzelne Ausgabe",
+  usageMonitorChartScrollHint: "Horizontal scrollen, um die vollständige Zeitleiste zu sehen",
+  usageMonitorChartEmpty: "Noch kein Verlauf",
   enablePrerequisiteToast: 'Bitte zuerst "{setting}" aktivieren',
   privacyModeTitle: "Privatmodus",
   collapsedButtonsOrderTitle: "Schnelltasten",

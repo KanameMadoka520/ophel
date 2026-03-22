@@ -167,6 +167,60 @@ export const ru = {
   // ======== Common Buttons/Labels ========
   tabBehaviorTitle: "Поведение",
   notificationSettings: "Действия после завершения",
+  usageMonitorSettingsTitle: "Локальный счетчик использования и оценка",
+  usageMonitorSettingsDesc:
+    "Показывает рядом с полем ввода локальное число отправок, прогресс по порогам и примерные оценки токенов.",
+  usageMonitorExplainLocalOnly:
+    "Примечание: это только локальная оценка. Расширение не знает официальный оставшийся лимит или реальное серверное ограничение.",
+  usageMonitorExplainNoBackend:
+    "Поведение: счетчики сохраняются только локально, а рядом с полем ввода показывается легкая панель. Никакое дополнительное состояние в бэкенд сайта не записывается.",
+  usageMonitorExplainReset:
+    "Сброс: фактическое время сброса лимитов на платформе может меняться и не всегда совпадает с местной полночью. Автосброс по умолчанию выключен; ручной сброс безопаснее.",
+  usageMonitorExplainRender:
+    "Панель отображается над текущим полем ввода и резервирует место для содержимого страницы. Если сразу после включения она отображается некорректно, обновление страницы обычно стабилизирует верстку.",
+  usageMonitorEnabledLabel: "Включить локальный счетчик и оценку для продвинутых моделей",
+  usageMonitorEnabledDesc:
+    "Использует легкую локальную панель рядом с полем ввода, чтобы оценивать использование текущего аккаунта без изменения поведения сайта.",
+  usageMonitorDailyLimitLabel: "Оценочный дневной лимит диалогов",
+  usageMonitorDailyLimitDesc:
+    "Используется для порогов предупреждения 80% / 100%. Это только локальная оценка.",
+  usageMonitorAutoResetLabel: "Включить автосброс",
+  usageMonitorAutoResetDesc:
+    "Экспериментально: автоматически сбрасывает счетчик при смене локальной даты. По умолчанию выключено, так как фактическое время сброса на платформе может отличаться.",
+  usageMonitorTodayUsed: "Использовано сегодня",
+  usageMonitorLocallyUsed: "Учтено локально",
+  usageMonitorInputChars: "Символы ввода",
+  usageMonitorContextChars: "Символы контекста",
+  usageMonitorInputTokens: "Оценка ввода",
+  usageMonitorLoadedConversationTokens: "Загруженный контекст",
+  usageMonitorLoadedOutputTokens: "Загруженный вывод",
+  usageMonitorRequestTokens: "Текущий запрос",
+  usageMonitorRoundTripTokens: "Полный цикл",
+  usageMonitorRoundTripDesc:
+    "Полный цикл = примерная общая стоимость текущего запроса плюс один ожидаемый ответ.",
+  usageMonitorResetButton: "Сброс",
+  usageMonitorManualMode: "Ручной режим",
+  usageMonitorChartTitle: "История использования",
+  usageMonitorChartDesc:
+    "Собрано из локальных событий отправки. Просматривайте количество или примерные токены по часам, дням или месяцам.",
+  usageMonitorChartHour: "Час",
+  usageMonitorChartDay: "День",
+  usageMonitorChartMonth: "Месяц",
+  usageMonitorChartSiteLabel: "Сайт",
+  usageMonitorChartSiteAll: "Все сайты",
+  usageMonitorChartCurrentSite: "Текущий сайт",
+  usageMonitorChartMetricCount: "Количество",
+  usageMonitorChartMetricRequest: "Токены запроса",
+  usageMonitorChartMetricRoundTrip: "Полный цикл",
+  usageMonitorChartMetricConversation: "Загруженный контекст",
+  usageMonitorChartMetricOutput: "Токены вывода",
+  usageMonitorChartDelta: "к предыдущему",
+  usageMonitorChartMaxConversation: "Макс. загруженный контекст",
+  usageMonitorChartMaxRequest: "Макс. один запрос",
+  usageMonitorChartMaxRoundTrip: "Макс. один цикл",
+  usageMonitorChartMaxOutput: "Макс. один вывод",
+  usageMonitorChartScrollHint: "Прокручивайте горизонтально, чтобы увидеть всю временную шкалу",
+  usageMonitorChartEmpty: "Истории пока нет",
   enablePrerequisiteToast: "Сначала включите «{setting}»",
   privacyModeTitle: "Приватность",
   collapsedButtonsOrderTitle: "Кнопки",

@@ -169,6 +169,60 @@ export const pt = {
   // ======== Common Buttons/Labels ========
   tabBehaviorTitle: "Comportamento",
   notificationSettings: "Ações ao Concluir",
+  usageMonitorSettingsTitle: "Contador local de uso e estimativa",
+  usageMonitorSettingsDesc:
+    "Mostra contagens locais de envio, progresso dos limites e estimativas aproximadas de tokens perto da caixa de entrada.",
+  usageMonitorExplainLocalOnly:
+    "Observação: esta é apenas uma estimativa local. A extensão não conhece a cota oficial restante nem o limite real do servidor.",
+  usageMonitorExplainNoBackend:
+    "Comportamento: apenas armazena as contagens localmente e exibe um painel leve perto da área de composição. Não grava nenhum estado extra no backend do site.",
+  usageMonitorExplainReset:
+    "Redefinição: os horários reais de redefinição da plataforma podem variar e nem sempre coincidem com a meia-noite local. A redefinição automática fica desativada por padrão; a redefinição manual é a opção mais segura.",
+  usageMonitorExplainRender:
+    "O painel é renderizado acima da área de composição atual e reserva espaço para o conteúdo da página. Se a renderização parecer estranha logo após ativá-lo, recarregar a página deve estabilizar o layout.",
+  usageMonitorEnabledLabel: "Ativar contador e estimativa local para modelos avançados",
+  usageMonitorEnabledDesc:
+    "Usa um painel local leve perto da área de composição para estimar o uso da conta atual sem alterar o comportamento do site.",
+  usageMonitorDailyLimitLabel: "Limite diário estimado de conversas",
+  usageMonitorDailyLimitDesc:
+    "Usado para os limites de aviso de 80% / 100%. Isto é apenas uma estimativa local.",
+  usageMonitorAutoResetLabel: "Ativar redefinição automática",
+  usageMonitorAutoResetDesc:
+    "Experimental: redefine automaticamente quando a data local muda. Desativado por padrão porque os horários reais de redefinição da plataforma podem variar.",
+  usageMonitorTodayUsed: "Usado hoje",
+  usageMonitorLocallyUsed: "Contado localmente",
+  usageMonitorInputChars: "Caracteres de entrada",
+  usageMonitorContextChars: "Caracteres de contexto",
+  usageMonitorInputTokens: "Entrada estimada",
+  usageMonitorLoadedConversationTokens: "Contexto carregado",
+  usageMonitorLoadedOutputTokens: "Saída carregada",
+  usageMonitorRequestTokens: "Solicitação atual",
+  usageMonitorRoundTripTokens: "Ida e volta",
+  usageMonitorRoundTripDesc:
+    "Ida e volta = o custo total estimado da solicitação atual mais uma resposta esperada.",
+  usageMonitorResetButton: "Redefinir",
+  usageMonitorManualMode: "Modo manual",
+  usageMonitorChartTitle: "Histórico de uso",
+  usageMonitorChartDesc:
+    "Agregado a partir de eventos locais de envio. Veja contagens ou tokens estimados por hora, dia ou mês.",
+  usageMonitorChartHour: "Hora",
+  usageMonitorChartDay: "Dia",
+  usageMonitorChartMonth: "Mês",
+  usageMonitorChartSiteLabel: "Site",
+  usageMonitorChartSiteAll: "Todos os sites",
+  usageMonitorChartCurrentSite: "Site atual",
+  usageMonitorChartMetricCount: "Contagem",
+  usageMonitorChartMetricRequest: "Tokens da solicitação",
+  usageMonitorChartMetricRoundTrip: "Ida e volta",
+  usageMonitorChartMetricConversation: "Contexto carregado",
+  usageMonitorChartMetricOutput: "Tokens de saída",
+  usageMonitorChartDelta: "vs anterior",
+  usageMonitorChartMaxConversation: "Máx. contexto carregado",
+  usageMonitorChartMaxRequest: "Máx. solicitação única",
+  usageMonitorChartMaxRoundTrip: "Máx. ida e volta",
+  usageMonitorChartMaxOutput: "Máx. saída única",
+  usageMonitorChartScrollHint: "Role horizontalmente para ver toda a linha do tempo",
+  usageMonitorChartEmpty: "Ainda não há histórico",
   enablePrerequisiteToast: 'Ative primeiro "{setting}"',
   privacyModeTitle: "Modo Privado",
   collapsedButtonsOrderTitle: "Botões Rápidos",

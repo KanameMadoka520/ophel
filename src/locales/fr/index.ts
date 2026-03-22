@@ -170,6 +170,60 @@ export const fr = {
   // ======== Common Buttons/Labels ========
   tabBehaviorTitle: "Comportement",
   notificationSettings: "Actions Après la Fin",
+  usageMonitorSettingsTitle: "Compteur local d'utilisation et estimation",
+  usageMonitorSettingsDesc:
+    "Affiche près du champ de saisie le nombre d'envois locaux, la progression des seuils et une estimation approximative des tokens.",
+  usageMonitorExplainLocalOnly:
+    "Remarque : il s'agit uniquement d'une estimation locale. L'extension ne connaît ni le quota officiel restant ni la limite réelle côté serveur.",
+  usageMonitorExplainNoBackend:
+    "Comportement : elle stocke seulement les compteurs en local et affiche un panneau léger près de la zone de rédaction. Elle n'écrit aucun état supplémentaire dans le backend du site.",
+  usageMonitorExplainReset:
+    "Réinitialisation : les heures réelles de remise à zéro de la plateforme peuvent varier et ne coïncident pas toujours avec minuit local. La réinitialisation automatique est désactivée par défaut ; la réinitialisation manuelle est l'option la plus sûre.",
+  usageMonitorExplainRender:
+    "Le panneau s'affiche au-dessus de la zone de rédaction actuelle et réserve de l'espace pour le contenu de la page. Si l'affichage semble anormal juste après l'activation, un rechargement de la page devrait stabiliser la mise en page.",
+  usageMonitorEnabledLabel: "Activer le compteur et l'estimation locale pour les modèles avancés",
+  usageMonitorEnabledDesc:
+    "Utilise un panneau local léger près de la zone de rédaction pour estimer l'utilisation du compte actuel sans modifier le comportement du site.",
+  usageMonitorDailyLimitLabel: "Limite quotidienne estimée de conversations",
+  usageMonitorDailyLimitDesc:
+    "Utilisé pour les seuils d'avertissement à 80 % / 100 %. Ce n'est qu'une estimation locale.",
+  usageMonitorAutoResetLabel: "Activer la réinitialisation automatique",
+  usageMonitorAutoResetDesc:
+    "Expérimental : réinitialise automatiquement lorsque la date locale change. Désactivé par défaut, car les heures réelles de remise à zéro de la plateforme peuvent varier.",
+  usageMonitorTodayUsed: "Utilisé aujourd'hui",
+  usageMonitorLocallyUsed: "Compté localement",
+  usageMonitorInputChars: "Caractères saisis",
+  usageMonitorContextChars: "Caractères du contexte",
+  usageMonitorInputTokens: "Entrée estimée",
+  usageMonitorLoadedConversationTokens: "Contexte chargé",
+  usageMonitorLoadedOutputTokens: "Sortie chargée",
+  usageMonitorRequestTokens: "Requête actuelle",
+  usageMonitorRoundTripTokens: "Aller-retour",
+  usageMonitorRoundTripDesc:
+    "Aller-retour = coût total estimé de la requête actuelle plus une réponse attendue.",
+  usageMonitorResetButton: "Réinitialiser",
+  usageMonitorManualMode: "Mode manuel",
+  usageMonitorChartTitle: "Historique d'utilisation",
+  usageMonitorChartDesc:
+    "Agrégé à partir des événements d'envoi locaux. Affiche les comptes ou les tokens estimés par heure, jour ou mois.",
+  usageMonitorChartHour: "Heure",
+  usageMonitorChartDay: "Jour",
+  usageMonitorChartMonth: "Mois",
+  usageMonitorChartSiteLabel: "Site",
+  usageMonitorChartSiteAll: "Tous les sites",
+  usageMonitorChartCurrentSite: "Site actuel",
+  usageMonitorChartMetricCount: "Nombre",
+  usageMonitorChartMetricRequest: "Tokens de requête",
+  usageMonitorChartMetricRoundTrip: "Aller-retour",
+  usageMonitorChartMetricConversation: "Contexte chargé",
+  usageMonitorChartMetricOutput: "Tokens de sortie",
+  usageMonitorChartDelta: "vs précédent",
+  usageMonitorChartMaxConversation: "Contexte chargé max.",
+  usageMonitorChartMaxRequest: "Requête unique max.",
+  usageMonitorChartMaxRoundTrip: "Aller-retour max.",
+  usageMonitorChartMaxOutput: "Sortie unique max.",
+  usageMonitorChartScrollHint: "Faites défiler horizontalement pour voir toute la chronologie",
+  usageMonitorChartEmpty: "Aucun historique pour le moment",
   enablePrerequisiteToast: 'Veuillez d\'abord activer "{setting}"',
   privacyModeTitle: "Mode Privé",
   collapsedButtonsOrderTitle: "Boutons Rapides",

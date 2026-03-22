@@ -5,7 +5,6 @@
  */
 import React, { useCallback, useEffect, useState } from "react"
 
-import { getAdapter } from "~adapters"
 import { FeaturesIcon } from "~components/icons"
 import { Button, NumberInput } from "~components/ui"
 import { FEATURES_TAB_IDS, NOTIFICATION_SOUND_PRESETS, SITE_IDS } from "~constants"
@@ -112,7 +111,8 @@ const UsageHistoryChart: React.FC<{ siteId: string }> = ({ siteId }) => {
 
   const selectedSiteLabel =
     siteOptions.find((site) => site.id === selectedSiteId)?.label ||
-    (t("usageMonitorChartSiteAll") || "全部站点")
+    t("usageMonitorChartSiteAll") ||
+    "全部站点"
 
   const refresh = React.useCallback(async () => {
     setLoading(true)
@@ -158,9 +158,9 @@ const UsageHistoryChart: React.FC<{ siteId: string }> = ({ siteId }) => {
         ? t("usageMonitorChartMetricRoundTrip") || "往返 Tokens"
         : metric === "loadedConversationTokens"
           ? t("usageMonitorChartMetricConversation") || "已加载对话 Tokens"
-        : metric === "loadedOutputTokens"
-          ? t("usageMonitorChartMetricOutput") || "输出 Tokens"
-          : t("usageMonitorChartMetricCount") || "次数"
+          : metric === "loadedOutputTokens"
+            ? t("usageMonitorChartMetricOutput") || "输出 Tokens"
+            : t("usageMonitorChartMetricCount") || "次数"
   const bucketPixelWidth = granularity === "month" ? 72 : granularity === "hour" ? 48 : 44
   const chartWidth =
     buckets.length > 1 ? Math.max(640, 40 + (buckets.length - 1) * bucketPixelWidth + 48) : 640
@@ -448,21 +448,21 @@ const UsageHistoryChart: React.FC<{ siteId: string }> = ({ siteId }) => {
                 />
               )}
 
-            {buckets.map((bucket, index) => {
-              const point = points[index]
-              const previous = points[index - 1]
-              const next = points[index + 1]
-              const xStart = previous ? (previous.x + point.x) / 2 : padding.left
-              const xEnd = next ? (point.x + next.x) / 2 : chartWidth - padding.right
+              {buckets.map((bucket, index) => {
+                const point = points[index]
+                const previous = points[index - 1]
+                const next = points[index + 1]
+                const xStart = previous ? (previous.x + point.x) / 2 : padding.left
+                const xEnd = next ? (point.x + next.x) / 2 : chartWidth - padding.right
 
-              return (
-                <rect
-                  key={`${bucket.key}-hover`}
-                  // 使用透明 hover 区域覆盖整个 bucket 宽度，提升折线图在稀疏点位上的悬浮命中率。
-                  x={xStart}
-                  y={padding.top}
-                  width={Math.max(12, xEnd - xStart)}
-                  height={innerHeight}
+                return (
+                  <rect
+                    key={`${bucket.key}-hover`}
+                    // 使用透明 hover 区域覆盖整个 bucket 宽度，提升折线图在稀疏点位上的悬浮命中率。
+                    x={xStart}
+                    y={padding.top}
+                    width={Math.max(12, xEnd - xStart)}
+                    height={innerHeight}
                     fill="transparent"
                     pointerEvents="all"
                     onMouseEnter={() => setHoveredIndex(index)}
@@ -649,7 +649,11 @@ const FeaturesPage: React.FC<FeaturesPageProps> = ({ siteId, initialTab }) => {
     if (!settings?.tab?.showNotification || !settings.tab.notificationSound) {
       stopNotificationSoundPreview()
     }
-  }, [settings?.tab?.notificationSound, settings?.tab?.showNotification, stopNotificationSoundPreview])
+  }, [
+    settings?.tab?.notificationSound,
+    settings?.tab?.showNotification,
+    stopNotificationSoundPreview,
+  ])
 
   useEffect(() => {
     const previewAudio = previewAudioRef.current
