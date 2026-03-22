@@ -776,6 +776,21 @@ export abstract class SiteAdapter {
     return null
   }
 
+  /**
+   * 解析大纲项对应的页面元素。
+   * 默认仅做同步 DOM 查找，子类可覆盖以支持虚拟列表/原生导航等异步定位。
+   */
+  async resolveOutlineTarget(
+    item: Pick<OutlineItem, "level" | "text" | "isUserQuery">,
+    queryIndex?: number,
+  ): Promise<Element | null> {
+    if (item.isUserQuery && item.level === 0 && queryIndex !== undefined) {
+      return this.findUserQueryElement(queryIndex, item.text)
+    }
+
+    return this.findElementByHeading(item.level, item.text)
+  }
+
   /** 是否支持滚动锁定功能 */
   supportsScrollLock(): boolean {
     return false
@@ -809,6 +824,11 @@ export abstract class SiteAdapter {
 
   /** 获取最新回复的文本内容（用于复制功能） */
   getLatestReplyText(): string | null {
+    return null
+  }
+
+  /** 获取最后一个代码块的文本内容（用于复制功能） */
+  getLastCodeBlockText(): string | null {
     return null
   }
 
