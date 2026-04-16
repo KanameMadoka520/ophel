@@ -44,6 +44,8 @@ const OPHEL_TARGET_URLS = [
   "https://www.doubao.com/*",
   "https://ima.qq.com/*",
   "https://chat.deepseek.com/*",
+  "https://www.perplexity.ai/*",
+  "https://perplexity.ai/*",
   "https://chatglm.cn/*",
   "https://chat.qwen.ai/*",
   "https://yuanbao.tencent.com/*",
@@ -66,14 +68,21 @@ function decodeNotifId(notifId: string): { tabId: number; windowId: number } | n
 }
 
 // 点击通知时激活对应标签页并聚焦窗口
-chrome.notifications.onClicked.addListener((notifId) => {
-  const tab = decodeNotifId(notifId)
-  if (tab) {
-    chrome.tabs.update(tab.tabId, { active: true }).catch(() => {})
-    chrome.windows.update(tab.windowId, { focused: true }).catch(() => {})
-  }
-  chrome.notifications.clear(notifId)
-})
+function getNotificationsApi(): typeof chrome.notifications | null {
+  return typeof chrome.notifications === "undefined" ? null : chrome.notifications
+}
+
+const notificationsApi = getNotificationsApi()
+if (notificationsApi) {
+  notificationsApi.onClicked.addListener((notifId) => {
+    const tab = decodeNotifId(notifId)
+    if (tab) {
+      chrome.tabs.update(tab.tabId, { active: true }).catch(() => {})
+      chrome.windows.update(tab.windowId, { focused: true }).catch(() => {})
+    }
+    notificationsApi.clear(notifId)
+  })
+}
 
 async function queryOphelTabs() {
   return chrome.tabs.query({ url: OPHEL_TARGET_URLS })
@@ -226,6 +235,11 @@ async function setupDynamicRules() {
 chrome.runtime.onMessage.addListener((message: ExtensionMessage, sender, sendResponse) => {
   switch (message.type) {
     case MSG_SHOW_NOTIFICATION: {
+      const notificationsApi = getNotificationsApi()
+      if (!notificationsApi) {
+        sendResponse({ success: false, error: "notifications_api_unavailable" })
+        break
+      }
       // 将 tabId/windowId 编码进 notifId，SW 重启后点击通知仍可正确跳转
       const tabId = sender.tab?.id
       const windowId = sender.tab?.windowId
@@ -234,7 +248,7 @@ chrome.runtime.onMessage.addListener((message: ExtensionMessage, sender, sendRes
           ? encodeNotifId(tabId, windowId)
           : `ophel|${crypto.randomUUID()}`
 
-      chrome.notifications.create(
+      notificationsApi.create(
         notifId,
         {
           type: "basic",

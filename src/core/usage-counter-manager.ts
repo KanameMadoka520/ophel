@@ -837,6 +837,11 @@ export class UsageCounterManager {
     const submitButton =
       this.adapter.findSubmitButton(editor) || this.findSubmitButtonBySelectors(editor)
 
+    const customAnchor = this.adapter.getUsageCounterMountAnchor(editor, submitButton)
+    if (customAnchor?.parentElement) {
+      return customAnchor
+    }
+
     const strongCandidates = [
       DOMToolkit.closestComposed(editor, "form"),
       submitButton ? DOMToolkit.closestComposed(submitButton, "form") : null,
@@ -1232,7 +1237,10 @@ export class UsageCounterManager {
 
     let nodes: Element[] = []
     try {
-      nodes = (DOMToolkit.query(selectors, { all: true, shadow: true }) as Element[]) || []
+      // DOMToolkit.query 在 all=true 且传入 selector 数组时，会返回“首个命中的 selector 结果”，
+      // 而不是多个 selector 的并集。这里显式合并为一个复合 selector，确保用户消息和 AI 输出都能被统计。
+      const combinedSelector = selectors.join(", ")
+      nodes = (DOMToolkit.query(combinedSelector, { all: true, shadow: true }) as Element[]) || []
     } catch {
       nodes = []
     }

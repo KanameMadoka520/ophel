@@ -436,7 +436,7 @@ export class ConversationManager {
       let needsUpdate = false
       const updates: Partial<Conversation> = {}
 
-      if (info.title && info.title !== existing.title) {
+      if (this.shouldUpdateConversationTitle(existing.title, info.title, existing.siteId)) {
         updates.title = info.title
         needsUpdate = true
       }
@@ -493,7 +493,7 @@ export class ConversationManager {
             this.monitorConversationTitle(el as HTMLElement, info.id)
           } else {
             // 检测标题变更
-            if (info.title && info.title !== existing.title) {
+            if (this.shouldUpdateConversationTitle(existing.title, info.title, existing.siteId)) {
               getConversationsStore().updateConversation(info.id, { title: info.title })
               this.notifyDataChange()
             }
@@ -536,7 +536,7 @@ export class ConversationManager {
       let needsUpdate = false
       const updates: Partial<Conversation> = {}
 
-      if (currentInfo.title && currentInfo.title !== existing.title) {
+      if (this.shouldUpdateConversationTitle(existing.title, currentInfo.title, existing.siteId)) {
         updates.title = currentInfo.title
         needsUpdate = true
       }
@@ -822,7 +822,7 @@ export class ConversationManager {
         const updates: Partial<Conversation> = {}
         let needsUpdate = false
 
-        if (existing.title !== item.title) {
+        if (this.shouldUpdateConversationTitle(existing.title, item.title, existing.siteId)) {
           updates.title = item.title
           needsUpdate = true
         }
@@ -918,6 +918,35 @@ export class ConversationManager {
     if (diff < 604800000) return Math.floor(diff / 86400000) + t("daysAgo")
 
     return date.toLocaleDateString()
+  }
+
+  private shouldUpdateConversationTitle(
+    existingTitle: string | undefined,
+    incomingTitle: string | undefined,
+    siteId?: string,
+  ): boolean {
+    const current = existingTitle?.trim() || ""
+    const next = incomingTitle?.trim() || ""
+
+    if (!next || next === current) return false
+    if (!current) return true
+
+    if ((siteId || this.siteAdapter.getSiteId()) === SITE_IDS.PERPLEXITY) {
+      const currentIsSlug = this.isPerplexitySlugTitle(current)
+      const nextIsSlug = this.isPerplexitySlugTitle(next)
+
+      if (!currentIsSlug && nextIsSlug) return false
+      if (currentIsSlug && !nextIsSlug) return true
+    }
+
+    return true
+  }
+
+  private isPerplexitySlugTitle(title: string): boolean {
+    const normalized = title.trim().toLowerCase()
+    if (!normalized) return true
+    if (/[\u3400-\u9fff]/.test(normalized)) return false
+    return /^[a-z0-9]+(?:-[a-z0-9]+){2,}(?:-[a-z0-9_-]{4,})?$/i.test(normalized)
   }
 
   private resolveConversationForExport(convId: string): Conversation | null {
