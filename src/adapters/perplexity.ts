@@ -1365,18 +1365,44 @@ export class PerplexityAdapter extends SiteAdapter {
     showWordCount: boolean,
   ): OutlineItem[] {
     const markdown = this.extractAssistantResponseText(assistantRoot)
-    if (!markdown) return []
+    const headings = markdown ? this.parseMarkdownHeadings(markdown, maxLevel) : []
+    if (headings.length > 0) {
+      const occurrenceCounts = new Map<string, number>()
+      return headings.map((heading, index) => {
+        const item: OutlineItem = {
+          level: heading.level,
+          text: heading.text,
+          element: assistantRoot,
+          context: `markdown-line:${heading.line}`,
+        }
+        item.id = this.buildOutlineOccurrenceId(
+          `heading::${groupId}::${assistantId}::${heading.level}`,
+          this.normalizeUiText(heading.text),
+          occurrenceCounts,
+        )
 
-    const headings = this.parseMarkdownHeadings(markdown, maxLevel)
-    if (headings.length === 0) return []
+        if (showWordCount) {
+          const nextLine = headings[index + 1]?.line ?? null
+          item.wordCount = this.countMarkdownSectionLength(markdown, heading.line, nextLine)
+        }
+
+        return item
+      })
+    }
+
+    const codeMarkdown = this.extractMarkdownFromCodeBlocks(assistantRoot)
+    if (!codeMarkdown) return []
+
+    const codeHeadings = this.parseMarkdownHeadings(codeMarkdown, maxLevel)
+    if (codeHeadings.length === 0) return []
 
     const occurrenceCounts = new Map<string, number>()
-    return headings.map((heading, index) => {
+    return codeHeadings.map((heading, index) => {
       const item: OutlineItem = {
         level: heading.level,
         text: heading.text,
         element: assistantRoot,
-        context: `markdown-line:${heading.line}`,
+        context: `code-markdown-line:${heading.line}`,
       }
       item.id = this.buildOutlineOccurrenceId(
         `heading::${groupId}::${assistantId}::${heading.level}`,
@@ -1385,8 +1411,8 @@ export class PerplexityAdapter extends SiteAdapter {
       )
 
       if (showWordCount) {
-        const nextLine = headings[index + 1]?.line ?? null
-        item.wordCount = this.countMarkdownSectionLength(markdown, heading.line, nextLine)
+        const nextLine = codeHeadings[index + 1]?.line ?? null
+        item.wordCount = this.countMarkdownSectionLength(codeMarkdown, heading.line, nextLine)
       }
 
       return item
@@ -1505,6 +1531,36 @@ export class PerplexityAdapter extends SiteAdapter {
     })
 
     return headings
+  }
+
+  private extractMarkdownFromCodeBlocks(assistantRoot: Element): string | null {
+    const codeBlocks = Array.from(assistantRoot.querySelectorAll("pre code, pre"))
+      .map((element) => (element.textContent || "").replace(/\r\n/g, "\n").trim())
+      .filter(Boolean)
+
+    for (const block of codeBlocks) {
+      const normalized = this.normalizeCodeBlockMarkdown(block)
+      if (!normalized) continue
+      if (this.parseMarkdownHeadings(normalized, 6).length > 0) {
+        return normalized
+      }
+    }
+
+    return null
+  }
+
+  private normalizeCodeBlockMarkdown(source: string): string | null {
+    const lines = source.split("\n")
+    if (lines.length === 0) return null
+
+    const firstLine = this.normalizeUiText(lines[0])
+    const body = lines.slice(1).join("\n").trim()
+
+    if (["text", "markdown", "md", "txt"].includes(firstLine) && body) {
+      return body
+    }
+
+    return source.trim() || null
   }
 
   private countMarkdownSectionLength(
