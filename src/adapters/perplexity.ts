@@ -551,10 +551,16 @@ export class PerplexityAdapter extends SiteAdapter {
 
     const headings = this.collectOutlineHeadingCandidates(container, maxLevel)
     const rawUserQueries = Array.from(container.querySelectorAll(userQuerySelector))
-    const userQueries = this.collectTopLevelBlocks(rawUserQueries).filter(
-      (element) => !this.shouldSkipOutlineElement(element),
+    const userQueries = this.dedupeUserQueries(
+      this.collectTopLevelBlocks(rawUserQueries).filter(
+        (element) => !this.shouldSkipOutlineElement(element),
+      ),
+      container,
     )
     const userQuerySet = new Set(userQueries)
+    const userQueryKeyCounts = new Map<string, number>()
+    const headingKeyCounts = new Map<string, number>()
+    let currentGroupId = "preamble"
 
     const allElements = [...userQueries, ...headings].sort((left, right) =>
       this.compareElementsByDocumentOrder(left, right),
@@ -585,6 +591,12 @@ export class PerplexityAdapter extends SiteAdapter {
           isUserQuery: true,
           isTruncated: fullText.length > 80,
         }
+        item.id = this.buildOutlineOccurrenceId(
+          "query",
+          this.normalizeUiText(fullText),
+          userQueryKeyCounts,
+        )
+        currentGroupId = item.id
 
         if (showWordCount) {
           const nextUserQuery =
@@ -610,6 +622,11 @@ export class PerplexityAdapter extends SiteAdapter {
         text,
         element,
       }
+      item.id = this.buildOutlineOccurrenceId(
+        `heading::${currentGroupId}::${headingLevel}`,
+        this.normalizeUiText(text),
+        headingKeyCounts,
+      )
 
       if (showWordCount) {
         let nextBoundary: Element | null = null
@@ -1272,6 +1289,38 @@ export class PerplexityAdapter extends SiteAdapter {
     )
   }
 
+  private dedupeUserQueries<T extends Element>(elements: T[], container: Element): T[] {
+    if (elements.length <= 1) return elements
+
+    const sorted = [...elements].sort((left, right) =>
+      this.compareElementsByDocumentOrder(left, right),
+    )
+    const deduped: T[] = []
+
+    for (const element of sorted) {
+      const previous = deduped[deduped.length - 1]
+      if (!previous) {
+        deduped.push(element)
+        continue
+      }
+
+      const previousText = this.normalizeUiText(this.extractUserQueryText(previous))
+      const currentText = this.normalizeUiText(this.extractUserQueryText(element))
+      if (
+        previousText &&
+        previousText === currentText &&
+        !this.hasAssistantResponseBetween(container, previous, element)
+      ) {
+        deduped[deduped.length - 1] = element
+        continue
+      }
+
+      deduped.push(element)
+    }
+
+    return deduped
+  }
+
   private collectOutlineHeadingCandidates(container: Element, maxLevel: number): Element[] {
     const selectors = Array.from({ length: maxLevel }, (_, index) => {
       const level = index + 1
@@ -1319,6 +1368,43 @@ export class PerplexityAdapter extends SiteAdapter {
     if (position & Node.DOCUMENT_POSITION_FOLLOWING) return -1
     if (position & Node.DOCUMENT_POSITION_PRECEDING) return 1
     return 0
+  }
+
+  private hasAssistantResponseBetween(
+    container: Element,
+    startElement: Element,
+    endElement: Element,
+  ): boolean {
+    const assistants = this.collectTopLevelBlocks(
+      Array.from(container.querySelectorAll(ASSISTANT_MESSAGE_SELECTOR)).filter(
+        (element) =>
+          !this.shouldSkipExportElement(element) && !element.closest(USER_QUERY_SELECTOR),
+      ),
+    )
+
+    return assistants.some((assistant) => {
+      const afterStart = Boolean(
+        startElement.compareDocumentPosition(assistant) & Node.DOCUMENT_POSITION_FOLLOWING,
+      )
+      if (!afterStart) return false
+
+      const beforeEnd = Boolean(
+        endElement.compareDocumentPosition(assistant) & Node.DOCUMENT_POSITION_PRECEDING,
+      )
+      return beforeEnd
+    })
+  }
+
+  private buildOutlineOccurrenceId(
+    prefix: string,
+    key: string,
+    counts: Map<string, number>,
+  ): string {
+    const safeKey = key || "untitled"
+    const currentCount = counts.get(`${prefix}::${safeKey}`) || 0
+    const nextCount = currentCount + 1
+    counts.set(`${prefix}::${safeKey}`, nextCount)
+    return `${prefix}::${safeKey}::${nextCount}`
   }
 
   private calculateAssistantWordCountBetween(

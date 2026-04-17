@@ -716,7 +716,17 @@ export class OutlineManager {
       "|" +
       showWordCountFlag +
       "|" +
-      outlineData.map((i) => `${i.text}:${(i as ExtendedOutlineItem).isBookmarked}`).join("|")
+      outlineData
+        .map((item) =>
+          [
+            this.getTreeStateKey(item),
+            item.level,
+            item.isUserQuery ? "q" : "h",
+            showWordCount ? item.wordCount ?? "" : "",
+            (item as ExtendedOutlineItem).isBookmarked ? "b" : "",
+          ].join(":"),
+        )
+        .join("|")
     const currentStateMap: Record<string, TreeState> = {}
     if (this.tree.length > 0) {
       this.captureTreeState(this.tree, currentStateMap)
@@ -933,7 +943,7 @@ export class OutlineManager {
   // State Management
   private captureTreeState(nodes: OutlineNode[], stateMap: Record<string, TreeState>) {
     nodes.forEach((node) => {
-      const key = `${node.level}_${node.text}`
+      const key = this.getTreeStateKey(node)
       const hasChildren = node.children && node.children.length > 0
       stateMap[key] = {
         collapsed: node.collapsed,
@@ -948,7 +958,7 @@ export class OutlineManager {
 
   private restoreTreeState(nodes: OutlineNode[], stateMap: Record<string, TreeState>) {
     nodes.forEach((node) => {
-      const key = `${node.level}_${node.text}`
+      const key = this.getTreeStateKey(node)
       const state = stateMap[key]
       if (state) {
         const hasChildrenNow = node.children && node.children.length > 0
@@ -981,6 +991,14 @@ export class OutlineManager {
         node.collapsed = false
       }
     })
+  }
+
+  private getTreeStateKey(item: Pick<OutlineItem, "level" | "text" | "id" | "context">): string {
+    if (item.id) {
+      return item.id
+    }
+
+    return this.generateSignature(item as OutlineItem)
   }
 
   // Legacy: 使用原始 level (H1-H6) 判断，不是 relativeLevel
