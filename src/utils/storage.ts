@@ -468,6 +468,7 @@ export const DEFAULT_SETTINGS: Settings = {
     gemini: { enabled: false, keyword: "" },
     "gemini-enterprise": { enabled: false, keyword: "" },
     ima: { enabled: false, keyword: "" },
+    perplexity: { enabled: false, keyword: "" },
     qwenai: { enabled: false, keyword: "" },
     yuanbao: { enabled: false, keyword: "" },
   },

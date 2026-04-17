@@ -13,10 +13,14 @@ import { htmlToMarkdown } from "~utils/exporter"
 import {
   SiteAdapter,
   type ConversationInfo,
+  type ConversationDeleteTarget,
   type ConversationObserverConfig,
   type ExportConfig,
+  type ModelSwitcherConfig,
   type NetworkMonitorConfig,
   type OutlineItem,
+  type SiteDeleteConversationResult,
+  type ZenModeConfig,
 } from "./base"
 
 const HOSTNAMES = new Set(["www.perplexity.ai", "perplexity.ai"])
@@ -78,6 +82,34 @@ const THREAD_LIST_ENDPOINT_PATH = "/rest/thread/list_ask_threads?version=2.18&so
 const THREAD_LIST_PAGE_SIZE = 100
 const THREAD_LIST_MAX_PAGES = 5
 const THREAD_LIST_CACHE_TTL_MS = 5 * 60 * 1000
+const THREAD_LIST_REQUEST_TIMEOUT_MS = 10_000
+const DELETE_FLOW_TIMEOUT_MS = 5_000
+
+const THREAD_ACTION_BUTTON_SELECTORS = [
+  'button[aria-label="Thread actions"]',
+  'button[aria-label*="Thread actions" i]',
+  'button[aria-label*="话题"]',
+  'button[aria-label*="对话"]',
+  'button[aria-label*="线程"]',
+]
+
+const DELETE_MENU_ITEM_LABELS = ["Delete", "删除"]
+const CONFIRM_BUTTON_LABELS = ["Confirm", "确认", "Delete", "删除"]
+
+const THREAD_ACTION_LABELS = ["Thread actions", "话题操作", "对话操作", "线程操作"]
+
+const ZEN_MODE_HIDE_SELECTORS = [
+  ".group\\/sidebar",
+  "aside",
+  'nav:has(a[href^="/search/"])',
+  'nav:has(a[href^="/page/"])',
+]
+const CLEAN_MODE_HIDE_SELECTORS = [
+  "footer",
+  "[data-testid='disclaimer']",
+  "[data-testid='assistant-disclaimer']",
+  "[data-testid='legal-disclaimer']",
+]
 
 const EXPORT_ROLE_ATTR = "data-gh-perplexity-export-role"
 const EXPORT_USER_SELECTOR = `[${EXPORT_ROLE_ATTR}="user"]`
@@ -103,6 +135,7 @@ function buildPerplexityUrl(pathname: string): string {
 export class PerplexityAdapter extends SiteAdapter {
   private threadListCache: ConversationInfo[] = []
   private threadListCacheExpiresAt = 0
+  private loadAllConversationsPromise: Promise<void> | null = null
 
   match(): boolean {
     return HOSTNAMES.has(window.location.hostname)
@@ -368,15 +401,38 @@ export class PerplexityAdapter extends SiteAdapter {
     }
   }
 
-  async loadAllConversations(): Promise<void> {
-    try {
-      const apiThreads = await this.fetchThreadsViaApi()
-      if (apiThreads.length > 0) {
-        this.cacheThreadList(apiThreads)
-      }
-    } catch (error) {
-      console.warn("[PerplexityAdapter] Failed to preload thread list:", error)
+  async deleteConversationOnSite(
+    target: ConversationDeleteTarget,
+  ): Promise<SiteDeleteConversationResult> {
+    const success = await this.deleteConversationViaUi(target.id)
+
+    return {
+      id: target.id,
+      success,
+      method: success ? "ui" : "none",
+      reason: success ? undefined : "ui_failed",
     }
+  }
+
+  async loadAllConversations(): Promise<void> {
+    if (this.loadAllConversationsPromise) {
+      return this.loadAllConversationsPromise
+    }
+
+    this.loadAllConversationsPromise = (async () => {
+      try {
+        const apiThreads = await this.fetchThreadsViaApi()
+        if (apiThreads.length > 0) {
+          this.cacheThreadList(apiThreads)
+        }
+      } catch (error) {
+        console.warn("[PerplexityAdapter] Failed to preload thread list:", error)
+      } finally {
+        this.loadAllConversationsPromise = null
+      }
+    })()
+
+    return this.loadAllConversationsPromise
   }
 
   navigateToConversation(id: string, url?: string): boolean {
@@ -393,6 +449,17 @@ export class PerplexityAdapter extends SiteAdapter {
 
   getUserQuerySelector(): string | null {
     return USER_QUERY_SELECTOR
+  }
+
+  getLatestReplyText(): string | null {
+    const responses = this.collectTopLevelBlocks(
+      Array.from(document.querySelectorAll(ASSISTANT_MESSAGE_SELECTOR)).filter(
+        (element) =>
+          !this.shouldSkipExportElement(element) && !element.closest(USER_QUERY_SELECTOR),
+      ),
+    )
+    const last = responses[responses.length - 1]
+    return last ? this.extractAssistantResponseText(last) : null
   }
 
   extractUserQueryText(element: Element): string {
@@ -482,31 +549,28 @@ export class PerplexityAdapter extends SiteAdapter {
     const userQuerySelector = this.getUserQuerySelector()
     if (!userQuerySelector) return outline
 
-    const headingSelectors = Array.from({ length: maxLevel }, (_, index) => `h${index + 1}`).join(
-      ", ",
-    )
+    const headings = this.collectOutlineHeadingCandidates(container, maxLevel)
     const rawUserQueries = Array.from(container.querySelectorAll(userQuerySelector))
     const userQueries = this.collectTopLevelBlocks(rawUserQueries).filter(
       (element) => !this.shouldSkipOutlineElement(element),
     )
     const userQuerySet = new Set(userQueries)
 
-    const allElements = Array.from(
-      container.querySelectorAll(`${userQuerySelector}, ${headingSelectors}`),
-    ).filter((element) => {
-      if (element.matches(userQuerySelector)) {
-        return userQuerySet.has(element)
-      }
-
-      return (
-        !this.shouldSkipOutlineElement(element) &&
-        element.closest(ASSISTANT_MESSAGE_SELECTOR) !== null
-      )
-    })
+    const allElements = [...userQueries, ...headings].sort((left, right) =>
+      this.compareElementsByDocumentOrder(left, right),
+    )
 
     allElements.forEach((element, index) => {
       const isUserQuery = element.matches(userQuerySelector)
-      const tagName = element.tagName.toLowerCase()
+      const headingLevel = isUserQuery ? null : this.getOutlineHeadingLevel(element)
+
+      if (element.matches(userQuerySelector)) {
+        if (!userQuerySet.has(element)) {
+          return
+        }
+      } else if (headingLevel === null) {
+        return
+      }
 
       if (isUserQuery) {
         if (!includeUserQueries) return
@@ -538,16 +602,11 @@ export class PerplexityAdapter extends SiteAdapter {
         return
       }
 
-      if (!/^h[1-6]$/.test(tagName)) return
-
-      const level = parseInt(tagName.charAt(1), 10)
-      if (Number.isNaN(level) || level > maxLevel) return
-
       const text = element.textContent?.trim() || ""
       if (!text) return
 
       const item: OutlineItem = {
-        level,
+        level: headingLevel,
         text,
         element,
       }
@@ -561,13 +620,10 @@ export class PerplexityAdapter extends SiteAdapter {
             break
           }
 
-          const candidateTagName = candidate.tagName.toLowerCase()
-          if (/^h[1-6]$/.test(candidateTagName)) {
-            const candidateLevel = parseInt(candidateTagName.charAt(1), 10)
-            if (!Number.isNaN(candidateLevel) && candidateLevel <= level) {
-              nextBoundary = candidate
-              break
-            }
+          const candidateLevel = this.getOutlineHeadingLevel(candidate)
+          if (candidateLevel !== null && candidateLevel <= headingLevel) {
+            nextBoundary = candidate
+            break
           }
         }
 
@@ -600,6 +656,101 @@ export class PerplexityAdapter extends SiteAdapter {
 
   getUserQueryWidthSelectors(): Array<{ selector: string; property: string }> {
     return [{ selector: USER_QUERY_SELECTOR, property: "maxWidth" }]
+  }
+
+  getZenModeConfig(): ZenModeConfig | null {
+    return {
+      hide: [...ZEN_MODE_HIDE_SELECTORS],
+      styles: [
+        { selector: ":root", property: "--sidebar-pinned-width", value: "0px" },
+        {
+          selector: "main",
+          property: "padding-left",
+          value: "0px",
+          extraCss: "padding-right: 0 !important; width: 100% !important;",
+        },
+        {
+          selector: "[role='tabpanel']",
+          property: "max-width",
+          value: "none",
+          extraCss: "width: 100% !important;",
+        },
+        {
+          selector: "main .mx-auto",
+          property: "max-width",
+          value: "min(1120px, calc(100vw - 48px))",
+        },
+      ],
+    }
+  }
+
+  getCleanModeConfig(): ZenModeConfig | null {
+    return {
+      hide: [...CLEAN_MODE_HIDE_SELECTORS],
+    }
+  }
+
+  getModelSwitcherConfig(keyword: string): ModelSwitcherConfig | null {
+    return {
+      targetModelKeyword: keyword,
+      selectorButtonSelectors: [
+        'button[aria-label="Select AI model"]',
+        'button[aria-label*="Select AI model" i]',
+        'button[aria-label*="model" i]',
+        'button[aria-label*="模型"]',
+      ],
+      menuItemSelector: "[role='menuitemradio'], [role='menuitemcheckbox'], [role='menuitem']",
+      checkInterval: 1000,
+      maxAttempts: 12,
+      menuRenderDelay: 200,
+    }
+  }
+
+  async toggleTheme(targetMode: "light" | "dark" | "system"): Promise<boolean> {
+    try {
+      const root = document.documentElement
+      const resolvedMode =
+        targetMode === "system"
+          ? window.matchMedia?.("(prefers-color-scheme: dark)").matches
+            ? "dark"
+            : "light"
+          : targetMode
+
+      root.setAttribute("data-color-scheme", resolvedMode)
+      document.body.setAttribute("data-color-scheme", resolvedMode)
+
+      root.classList.toggle("dark", resolvedMode === "dark")
+      root.classList.toggle("light", resolvedMode === "light")
+      document.body.classList.toggle("dark", resolvedMode === "dark")
+      document.body.classList.toggle("light", resolvedMode === "light")
+      root.style.colorScheme = resolvedMode
+
+      try {
+        localStorage.setItem("theme", targetMode)
+        localStorage.setItem("appearance", targetMode)
+        window.dispatchEvent(
+          new StorageEvent("storage", {
+            key: "theme",
+            newValue: targetMode,
+            storageArea: localStorage,
+          }),
+        )
+        window.dispatchEvent(
+          new StorageEvent("storage", {
+            key: "appearance",
+            newValue: targetMode,
+            storageArea: localStorage,
+          }),
+        )
+      } catch {
+        // ignore localStorage access issues
+      }
+
+      return true
+    } catch (error) {
+      console.error("[PerplexityAdapter] toggleTheme error:", error)
+      return false
+    }
   }
 
   private selectEditorContents(editor: HTMLElement): void {
@@ -674,6 +825,47 @@ export class PerplexityAdapter extends SiteAdapter {
     }
   }
 
+  private async deleteConversationViaUi(id: string): Promise<boolean> {
+    const sidebarLink = await this.waitForValue(() => this.findSidebarConversationLink(id), 600)
+    if (sidebarLink) {
+      const container = this.findConversationItemContainer(sidebarLink)
+      const actionButton = await this.openThreadActionMenu({
+        preferredContainer: container,
+        triggerScope: container || sidebarLink,
+      })
+
+      if (actionButton && (await this.confirmDeleteFromOpenMenu())) {
+        this.syncConversationListAfterDelete(id)
+        return true
+      }
+    }
+
+    if (this.getSessionId() !== id && !this.navigateToConversation(id)) {
+      return false
+    }
+
+    const ready = await this.waitForCondition(
+      () => this.getSessionId() === id,
+      DELETE_FLOW_TIMEOUT_MS,
+    )
+    if (!ready) return false
+
+    const actionButton = await this.openThreadActionMenu({
+      preferredContainer: document.querySelector(
+        ".h-headerHeight.fixed.z-10",
+      ) as HTMLElement | null,
+      triggerScope: document.body,
+    })
+    if (!actionButton) return false
+
+    const deleted = await this.confirmDeleteFromOpenMenu()
+    if (deleted) {
+      this.syncConversationListAfterDelete(id)
+    }
+
+    return deleted
+  }
+
   private findScrollableParent(element: Element | null): HTMLElement | null {
     let current = element instanceof HTMLElement ? element : element?.parentElement || null
 
@@ -685,6 +877,20 @@ export class PerplexityAdapter extends SiteAdapter {
     }
 
     return null
+  }
+
+  private syncConversationListAfterDelete(id: string): void {
+    this.threadListCache = this.threadListCache.filter((item) => item.id !== id)
+    this.threadListCacheExpiresAt = Math.min(this.threadListCacheExpiresAt, Date.now() + 10_000)
+
+    document.querySelectorAll(SIDEBAR_LINK_SELECTOR).forEach((element) => {
+      const anchor = element as HTMLAnchorElement
+      if (this.parseThreadSlugFromUrl(anchor.getAttribute("href") || anchor.href || "") !== id)
+        return
+
+      const container = this.findConversationItemContainer(anchor)
+      ;(container || anchor).remove()
+    })
   }
 
   private parseThreadSlugFromUrl(url: string): string {
@@ -733,6 +939,28 @@ export class PerplexityAdapter extends SiteAdapter {
     return Array.from(result.values())
   }
 
+  private findSidebarConversationLink(id: string): HTMLAnchorElement | null {
+    const links = document.querySelectorAll(SIDEBAR_LINK_SELECTOR)
+    for (const link of Array.from(links)) {
+      const anchor = link as HTMLAnchorElement
+      const slug = this.parseThreadSlugFromUrl(anchor.getAttribute("href") || anchor.href || "")
+      if (slug === id) {
+        return anchor
+      }
+    }
+
+    return null
+  }
+
+  private findConversationItemContainer(anchor: Element | null): HTMLElement | null {
+    if (!(anchor instanceof HTMLElement)) return null
+
+    return (anchor.closest("li") ||
+      anchor.closest("[role='listitem']") ||
+      anchor.closest(".group") ||
+      anchor.parentElement) as HTMLElement | null
+  }
+
   private getCachedThreadList(): ConversationInfo[] {
     if (Date.now() > this.threadListCacheExpiresAt) {
       return []
@@ -776,26 +1004,51 @@ export class PerplexityAdapter extends SiteAdapter {
     const currentSessionId = this.getSessionId()
 
     for (let page = 0; page < THREAD_LIST_MAX_PAGES; page += 1) {
-      const response = await fetch(buildPerplexityUrl(THREAD_LIST_ENDPOINT_PATH), {
-        method: "POST",
-        credentials: "include",
-        headers: {
-          "Content-Type": "application/json",
-          Accept: "application/json",
-        },
-        body: JSON.stringify({
-          limit: THREAD_LIST_PAGE_SIZE,
-          offset: page * THREAD_LIST_PAGE_SIZE,
-          search_term: "",
-          with_temporary_threads: false,
-        }),
-      })
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), THREAD_LIST_REQUEST_TIMEOUT_MS)
 
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`)
+      let responseText = ""
+
+      try {
+        const response = await fetch(buildPerplexityUrl(THREAD_LIST_ENDPOINT_PATH), {
+          method: "POST",
+          credentials: "include",
+          headers: {
+            "Content-Type": "application/json",
+            Accept: "application/json",
+          },
+          body: JSON.stringify({
+            limit: THREAD_LIST_PAGE_SIZE,
+            offset: page * THREAD_LIST_PAGE_SIZE,
+            search_term: "",
+            with_temporary_threads: false,
+          }),
+          signal: controller.signal,
+        })
+
+        responseText = await response.text()
+
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`)
+        }
+      } catch (error) {
+        if (error instanceof DOMException && error.name === "AbortError") {
+          throw new Error(`Thread list request timed out after ${THREAD_LIST_REQUEST_TIMEOUT_MS}ms`)
+        }
+
+        throw error
+      } finally {
+        clearTimeout(timeoutId)
       }
 
-      const data = JSON.parse(await response.text()) as PerplexityThreadListEntry[]
+      let data: PerplexityThreadListEntry[]
+      try {
+        data = JSON.parse(responseText) as PerplexityThreadListEntry[]
+      } catch {
+        const preview = responseText.replace(/\s+/g, " ").trim().slice(0, 160)
+        throw new Error(`Invalid thread list response JSON${preview ? `: ${preview}` : ""}`)
+      }
+
       if (!Array.isArray(data) || data.length === 0) break
 
       for (const entry of data) {
@@ -822,6 +1075,115 @@ export class PerplexityAdapter extends SiteAdapter {
     }
 
     return results
+  }
+
+  private async openThreadActionMenu({
+    preferredContainer,
+    triggerScope,
+  }: {
+    preferredContainer: HTMLElement | null
+    triggerScope: ParentNode
+  }): Promise<HTMLElement | null> {
+    if (preferredContainer) {
+      this.revealConversationActions(preferredContainer)
+    }
+
+    const actionButton = await this.waitForValue(
+      () => this.findThreadActionButton(preferredContainer, triggerScope),
+      1500,
+    )
+    if (!actionButton) return null
+
+    this.simulateClick(actionButton)
+
+    const opened = await this.waitForCondition(
+      () => this.findOpenDeleteMenuItem() !== null,
+      DELETE_FLOW_TIMEOUT_MS,
+    )
+    return opened ? actionButton : null
+  }
+
+  private revealConversationActions(container: HTMLElement): void {
+    const events = [
+      new PointerEvent("pointerenter", { bubbles: true, composed: true }),
+      new MouseEvent("mouseenter", { bubbles: true, composed: true }),
+      new MouseEvent("mouseover", { bubbles: true, composed: true }),
+    ]
+
+    events.forEach((event) => container.dispatchEvent(event))
+  }
+
+  private findThreadActionButton(
+    preferredContainer: HTMLElement | null,
+    triggerScope: ParentNode,
+  ): HTMLElement | null {
+    const scopes = [preferredContainer, triggerScope, document.body].filter(Boolean) as ParentNode[]
+
+    for (const scope of scopes) {
+      for (const selector of THREAD_ACTION_BUTTON_SELECTORS) {
+        const candidates = scope.querySelectorAll(selector)
+        for (const candidate of Array.from(candidates)) {
+          if (!(candidate instanceof HTMLElement)) continue
+          if (!this.isVisibleElement(candidate)) continue
+          if (this.matchesUiLabel(candidate, THREAD_ACTION_LABELS)) {
+            return candidate
+          }
+        }
+      }
+    }
+
+    return null
+  }
+
+  private async confirmDeleteFromOpenMenu(): Promise<boolean> {
+    const deleteItem = await this.waitForValue(
+      () => this.findOpenDeleteMenuItem(),
+      DELETE_FLOW_TIMEOUT_MS,
+    )
+    if (!deleteItem) return false
+
+    this.simulateClick(deleteItem)
+
+    const confirmButton = await this.waitForValue(
+      () => this.findConfirmationButton(),
+      DELETE_FLOW_TIMEOUT_MS,
+    )
+    if (!confirmButton) return false
+
+    this.simulateClick(confirmButton)
+
+    await this.sleep(300)
+    return true
+  }
+
+  private findOpenDeleteMenuItem(): HTMLElement | null {
+    const menus = document.querySelectorAll("[role='menu'], [data-radix-popper-content-wrapper]")
+    for (const menu of Array.from(menus)) {
+      const buttons = menu.querySelectorAll("button, [role='menuitem'], [role='menuitemradio']")
+      for (const button of Array.from(buttons)) {
+        if (!(button instanceof HTMLElement)) continue
+        if (this.matchesUiLabel(button, DELETE_MENU_ITEM_LABELS)) {
+          return button
+        }
+      }
+    }
+
+    return null
+  }
+
+  private findConfirmationButton(): HTMLElement | null {
+    const dialogs = document.querySelectorAll("[role='dialog'], [data-radix-portal]")
+    for (const dialog of Array.from(dialogs)) {
+      const buttons = dialog.querySelectorAll("button, [role='button']")
+      for (const button of Array.from(buttons)) {
+        if (!(button instanceof HTMLElement)) continue
+        if (this.matchesUiLabel(button, CONFIRM_BUTTON_LABELS)) {
+          return button
+        }
+      }
+    }
+
+    return null
   }
 
   private findUserContentRoot(element: Element): HTMLElement | null {
@@ -908,6 +1270,55 @@ export class PerplexityAdapter extends SiteAdapter {
     return elements.filter(
       (element) => !elements.some((other) => other !== element && other.contains(element)),
     )
+  }
+
+  private collectOutlineHeadingCandidates(container: Element, maxLevel: number): Element[] {
+    const selectors = Array.from({ length: maxLevel }, (_, index) => {
+      const level = index + 1
+      return [`h${level}`, `[role='heading'][aria-level='${level}']`]
+    }).flat()
+
+    const candidates = Array.from(new Set(container.querySelectorAll(selectors.join(", "))))
+    return this.collectTopLevelBlocks(
+      candidates.filter((element) => this.isOutlineHeadingCandidate(element, maxLevel)),
+    )
+  }
+
+  private isOutlineHeadingCandidate(element: Element, maxLevel: number): boolean {
+    if (this.shouldSkipOutlineElement(element)) return false
+    if (element.closest("nav, aside, header, footer, [role='dialog'], button, [role='button']")) {
+      return false
+    }
+
+    const level = this.getOutlineHeadingLevel(element)
+    if (level === null || level > maxLevel) return false
+
+    const text = element.textContent?.trim() || ""
+    return Boolean(text)
+  }
+
+  private getOutlineHeadingLevel(element: Element): number | null {
+    const tagName = element.tagName.toLowerCase()
+    if (/^h[1-6]$/.test(tagName)) {
+      const level = parseInt(tagName.charAt(1), 10)
+      return Number.isNaN(level) ? null : level
+    }
+
+    if (element.getAttribute("role") === "heading") {
+      const rawLevel = parseInt(element.getAttribute("aria-level") || "", 10)
+      return Number.isNaN(rawLevel) ? null : rawLevel
+    }
+
+    return null
+  }
+
+  private compareElementsByDocumentOrder(left: Element, right: Element): number {
+    if (left === right) return 0
+
+    const position = left.compareDocumentPosition(right)
+    if (position & Node.DOCUMENT_POSITION_FOLLOWING) return -1
+    if (position & Node.DOCUMENT_POSITION_PRECEDING) return 1
+    return 0
   }
 
   private calculateAssistantWordCountBetween(
@@ -1083,5 +1494,51 @@ export class PerplexityAdapter extends SiteAdapter {
       element.getAttribute("aria-disabled") === "true" ||
       element.classList.contains("disabled")
     )
+  }
+
+  private matchesUiLabel(element: HTMLElement, labels: string[]): boolean {
+    const text = this.normalizeUiText(
+      [
+        element.textContent || "",
+        element.getAttribute("aria-label") || "",
+        element.getAttribute("title") || "",
+      ].join(" "),
+    )
+
+    return labels.some((label) => {
+      const normalized = this.normalizeUiText(label)
+      return Boolean(normalized) && text.includes(normalized)
+    })
+  }
+
+  private normalizeUiText(value: string): string {
+    return value.replace(/\s+/g, " ").trim().toLowerCase()
+  }
+
+  private async waitForValue<T>(getter: () => T | null, timeoutMs: number): Promise<T | null> {
+    const start = Date.now()
+
+    while (Date.now() - start < timeoutMs) {
+      const value = getter()
+      if (value) return value
+      await this.sleep(80)
+    }
+
+    return null
+  }
+
+  private async waitForCondition(check: () => boolean, timeoutMs: number): Promise<boolean> {
+    const start = Date.now()
+
+    while (Date.now() - start < timeoutMs) {
+      if (check()) return true
+      await this.sleep(80)
+    }
+
+    return false
+  }
+
+  private async sleep(ms: number): Promise<void> {
+    await new Promise((resolve) => setTimeout(resolve, ms))
   }
 }
