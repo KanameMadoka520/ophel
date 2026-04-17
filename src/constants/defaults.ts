@@ -95,6 +95,7 @@ export const SITE_IDS = {
   KIMI: "kimi",
   QIANWEN: "qianwen",
   QWENAI: "qwenai",
+  STEPFUN: "stepfun",
   YUANBAO: "yuanbao",
   ZAI: "zai",
 } as const
@@ -170,6 +171,13 @@ export const SUPPORTED_AI_PLATFORMS: SupportedAiPlatform[] = [
     pattern: /www\.kimi\.com/,
     url: "https://www.kimi.com",
     icon: "🌙",
+  },
+  {
+    id: SITE_IDS.STEPFUN,
+    name: "StepFun",
+    pattern: /(?:www\.)?stepfun\.com/,
+    url: "https://www.stepfun.com",
+    icon: "S",
   },
   {
     id: SITE_IDS.ZAI,

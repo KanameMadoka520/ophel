@@ -18,6 +18,7 @@ import { ImaAdapter } from "./ima"
 import { KimiAdapter } from "./kimi"
 import { QianwenAdapter } from "./qianwen"
 import { QwenAiAdapter } from "./qwen-studio"
+import { StepFunAdapter } from "./stepfun"
 import { YuanbaoAdapter } from "./yuanbao"
 import { ZaiAdapter } from "./zai"
 
@@ -36,6 +37,7 @@ const adapters: SiteAdapter[] = [
   new KimiAdapter(),
   new QwenAiAdapter(),
   new QianwenAdapter(),
+  new StepFunAdapter(),
   new YuanbaoAdapter(),
   new ZaiAdapter(),
 ]
