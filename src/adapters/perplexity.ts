@@ -74,8 +74,7 @@ const THREAD_TITLE_SELECTOR =
   ".h-headerHeight.fixed.z-10 .cursor-pointer.transition.duration-300.hover\\:opacity-70, input[placeholder='Untitled']"
 
 const QUERY_EDIT_BUTTON_SELECTOR = 'button[data-testid="edit-query-button"]'
-const THREAD_LIST_ENDPOINT =
-  "https://www.perplexity.ai/rest/thread/list_ask_threads?version=2.18&source=default"
+const THREAD_LIST_ENDPOINT_PATH = "/rest/thread/list_ask_threads?version=2.18&source=default"
 const THREAD_LIST_PAGE_SIZE = 100
 const THREAD_LIST_MAX_PAGES = 5
 const THREAD_LIST_CACHE_TTL_MS = 5 * 60 * 1000
@@ -87,6 +86,18 @@ const EXPORT_ASSISTANT_SELECTOR = `[${EXPORT_ROLE_ATTR}="assistant"]`
 interface PerplexityThreadListEntry {
   slug?: unknown
   title?: unknown
+}
+
+function getPerplexityOrigin(): string {
+  if (typeof window !== "undefined" && HOSTNAMES.has(window.location.hostname)) {
+    return window.location.origin
+  }
+
+  return "https://www.perplexity.ai"
+}
+
+function buildPerplexityUrl(pathname: string): string {
+  return new URL(pathname, getPerplexityOrigin()).toString()
 }
 
 export class PerplexityAdapter extends SiteAdapter {
@@ -121,7 +132,7 @@ export class PerplexityAdapter extends SiteAdapter {
   }
 
   getNewTabUrl(): string {
-    return "https://www.perplexity.ai/"
+    return buildPerplexityUrl("/")
   }
 
   getSessionName(): string | null {
@@ -175,12 +186,7 @@ export class PerplexityAdapter extends SiteAdapter {
     editor.focus()
 
     if (editor instanceof HTMLTextAreaElement || editor instanceof HTMLInputElement) {
-      const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set
-      if (setter) {
-        setter.call(editor, content)
-      } else {
-        editor.value = content
-      }
+      this.setTextEntryValue(editor, content)
       editor.dispatchEvent(
         new InputEvent("input", { bubbles: true, composed: true, data: content }),
       )
@@ -228,12 +234,7 @@ export class PerplexityAdapter extends SiteAdapter {
     editor.focus()
 
     if (editor instanceof HTMLTextAreaElement || editor instanceof HTMLInputElement) {
-      const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set
-      if (setter) {
-        setter.call(editor, "")
-      } else {
-        editor.value = ""
-      }
+      this.setTextEntryValue(editor, "")
       editor.dispatchEvent(new InputEvent("input", { bubbles: true, composed: true, data: "" }))
       editor.dispatchEvent(new Event("change", { bubbles: true }))
       if (editor instanceof HTMLTextAreaElement) {
@@ -379,7 +380,7 @@ export class PerplexityAdapter extends SiteAdapter {
   }
 
   navigateToConversation(id: string, url?: string): boolean {
-    return super.navigateToConversation(id, url || `https://www.perplexity.ai/search/${id}`)
+    return super.navigateToConversation(id, url || buildPerplexityUrl(`/search/${id}`))
   }
 
   getResponseContainerSelector(): string {
@@ -746,6 +747,7 @@ export class PerplexityAdapter extends SiteAdapter {
 
   private mergeConversationInfos(...lists: ConversationInfo[][]): ConversationInfo[] {
     const merged = new Map<string, ConversationInfo>()
+    const currentSessionId = this.getSessionId()
 
     for (const list of lists) {
       for (const item of list) {
@@ -759,8 +761,8 @@ export class PerplexityAdapter extends SiteAdapter {
           ...existing,
           ...item,
           title: preferredTitle,
-          url: item.url || existing?.url || `https://www.perplexity.ai/search/${item.id}`,
-          isActive: Boolean(existing?.isActive || item.isActive),
+          url: item.url || existing?.url || buildPerplexityUrl(`/search/${item.id}`),
+          isActive: currentSessionId ? item.id === currentSessionId : false,
         })
       }
     }
@@ -774,7 +776,7 @@ export class PerplexityAdapter extends SiteAdapter {
     const currentSessionId = this.getSessionId()
 
     for (let page = 0; page < THREAD_LIST_MAX_PAGES; page += 1) {
-      const response = await fetch(THREAD_LIST_ENDPOINT, {
+      const response = await fetch(buildPerplexityUrl(THREAD_LIST_ENDPOINT_PATH), {
         method: "POST",
         credentials: "include",
         headers: {
@@ -807,7 +809,7 @@ export class PerplexityAdapter extends SiteAdapter {
             typeof entry?.title === "string" ? entry.title : "",
             slug,
           ),
-          url: `https://www.perplexity.ai/search/${slug}`,
+          url: buildPerplexityUrl(`/search/${slug}`),
           isActive: slug === currentSessionId,
         })
       }
@@ -879,11 +881,27 @@ export class PerplexityAdapter extends SiteAdapter {
   }
 
   private shouldSkipOutlineElement(element: Element): boolean {
+    const userQueryAncestor = element.closest(USER_QUERY_SELECTOR)
+
     return (
       element.closest(".gh-root") !== null ||
       element.closest(".gh-user-query-markdown") !== null ||
-      element.closest(USER_QUERY_SELECTOR) !== null
+      (userQueryAncestor !== null && !element.matches(USER_QUERY_SELECTOR))
     )
+  }
+
+  private setTextEntryValue(editor: HTMLTextAreaElement | HTMLInputElement, value: string): void {
+    const prototype =
+      editor instanceof HTMLTextAreaElement
+        ? HTMLTextAreaElement.prototype
+        : HTMLInputElement.prototype
+    const setter = Object.getOwnPropertyDescriptor(prototype, "value")?.set
+
+    if (setter) {
+      setter.call(editor, value)
+    } else {
+      editor.value = value
+    }
   }
 
   private collectTopLevelBlocks<T extends Element>(elements: T[]): T[] {

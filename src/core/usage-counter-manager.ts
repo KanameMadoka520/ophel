@@ -1235,6 +1235,49 @@ export class UsageCounterManager {
       }
     }
 
+    {
+      const nodes = this.queryAllSelectors(selectors)
+      if (nodes.length === 0) {
+        return {
+          conversationText: "",
+          conversationChars: 0,
+          conversationTokens: 0,
+          outputChars: 0,
+          outputTokens: 0,
+        }
+      }
+
+      const userSelector = this.adapter.getUserQuerySelector()
+      const uniqueNodes = this.sortElementsInDomOrder(Array.from(new Set(nodes)))
+      const conversationChunks: string[] = []
+      const outputChunks: string[] = []
+
+      uniqueNodes.forEach((node) => {
+        const isUser = userSelector ? this.matchesSelector(node, userSelector) : false
+        const text = isUser
+          ? this.adapter.extractUserQueryMarkdown(node)
+          : this.adapter.extractAssistantResponseText(node)
+        const normalized = normalizeText(text || node.textContent || "")
+        if (!normalized) return
+
+        conversationChunks.push(normalized)
+        if (!isUser) {
+          outputChunks.push(normalized)
+        }
+      })
+
+      const conversationText = conversationChunks.join("\n")
+      const outputText = outputChunks.join("\n")
+
+      return {
+        conversationText,
+        conversationChars: conversationText.length,
+        conversationTokens: this.estimateTokens(conversationText),
+        outputChars: outputText.length,
+        outputTokens: this.estimateTokens(outputText),
+      }
+    }
+
     let nodes: Element[] = []
     try {
       // DOMToolkit.query 在 all=true 且传入 selector 数组时，会返回“首个命中的 selector 结果”，
@@ -1286,6 +1329,40 @@ export class UsageCounterManager {
       outputChars: outputText.length,
       outputTokens: this.estimateTokens(outputText),
     }
+  }
+
+  private queryAllSelectors(selectors: string[]): Element[] {
+    const results: Element[] = []
+    const seen = new Set<Element>()
+
+    selectors.forEach((selector) => {
+      let matched: Element[] = []
+      try {
+        matched = (DOMToolkit.query(selector, { all: true, shadow: true }) as Element[]) || []
+      } catch {
+        matched = []
+      }
+
+      matched.forEach((element) => {
+        if (!seen.has(element)) {
+          seen.add(element)
+          results.push(element)
+        }
+      })
+    })
+
+    return results
+  }
+
+  private sortElementsInDomOrder(elements: Element[]): Element[] {
+    return [...elements].sort((left, right) => {
+      if (left === right) return 0
+
+      const position = left.compareDocumentPosition(right)
+      if (position & Node.DOCUMENT_POSITION_FOLLOWING) return -1
+      if (position & Node.DOCUMENT_POSITION_PRECEDING) return 1
+      return 0
+    })
   }
 
   private matchesSelector(element: Element, selector: string): boolean {
