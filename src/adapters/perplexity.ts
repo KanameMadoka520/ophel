@@ -541,9 +541,7 @@ export class PerplexityAdapter extends SiteAdapter {
 
   extractOutline(maxLevel = 6, includeUserQueries = false, showWordCount = false): OutlineItem[] {
     const outline: OutlineItem[] = []
-    const container =
-      document.querySelector("[role='tabpanel']") ||
-      document.querySelector(this.getResponseContainerSelector())
+    const container = this.getOutlineContainer()
     if (!container) return outline
 
     const userQuerySelector = this.getUserQuerySelector()
@@ -1292,6 +1290,20 @@ export class PerplexityAdapter extends SiteAdapter {
     return this.collectTopLevelBlocks(
       candidates.filter((element) => this.isOutlineHeadingCandidate(element, maxLevel)),
     )
+  }
+
+  private getOutlineContainer(): Element | null {
+    const main = document.querySelector("main")
+    if (main) return main
+
+    const panelTabs = Array.from(document.querySelectorAll("[role='tabpanel']")).filter((element) =>
+      element.closest("main"),
+    )
+    if (panelTabs.length > 0) {
+      return panelTabs[panelTabs.length - 1]
+    }
+
+    return document.querySelector(this.getResponseContainerSelector())
   }
 
   private collectAssistantRoots(container: Element): Element[] {
