@@ -69,7 +69,20 @@ function decodeNotifId(notifId: string): { tabId: number; windowId: number } | n
 
 // 点击通知时激活对应标签页并聚焦窗口
 function getNotificationsApi(): typeof chrome.notifications | null {
-  return typeof chrome.notifications === "undefined" ? null : chrome.notifications
+  if (typeof chrome === "undefined" || typeof chrome.notifications === "undefined") {
+    return null
+  }
+
+  const api = chrome.notifications
+  if (
+    typeof api.create !== "function" ||
+    typeof api.clear !== "function" ||
+    typeof api.onClicked?.addListener !== "function"
+  ) {
+    return null
+  }
+
+  return api
 }
 
 const notificationsApi = getNotificationsApi()
