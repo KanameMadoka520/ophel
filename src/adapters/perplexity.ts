@@ -549,7 +549,6 @@ export class PerplexityAdapter extends SiteAdapter {
     const userQuerySelector = this.getUserQuerySelector()
     if (!userQuerySelector) return outline
 
-    const headings = this.collectOutlineHeadingCandidates(container, maxLevel)
     const rawUserQueries = Array.from(container.querySelectorAll(userQuerySelector))
     const userQueries = this.dedupeUserQueries(
       this.collectTopLevelBlocks(rawUserQueries).filter(
@@ -558,26 +557,16 @@ export class PerplexityAdapter extends SiteAdapter {
       ),
       container,
     )
-    const userQuerySet = new Set(userQueries)
+    const assistantRoots = this.collectAssistantRoots(container)
     const userQueryKeyCounts = new Map<string, number>()
-    const headingKeyCounts = new Map<string, number>()
     let currentGroupId = "preamble"
 
-    const allElements = [...userQueries, ...headings].sort((left, right) =>
+    const blocks = [...userQueries, ...assistantRoots].sort((left, right) =>
       this.compareElementsByDocumentOrder(left, right),
     )
 
-    allElements.forEach((element, index) => {
+    blocks.forEach((element, index) => {
       const isUserQuery = element.matches(userQuerySelector)
-      const headingLevel = isUserQuery ? null : this.getOutlineHeadingLevel(element)
-
-      if (element.matches(userQuerySelector)) {
-        if (!userQuerySet.has(element)) {
-          return
-        }
-      } else if (headingLevel === null) {
-        return
-      }
 
       if (isUserQuery) {
         if (!includeUserQueries) return
@@ -601,9 +590,8 @@ export class PerplexityAdapter extends SiteAdapter {
 
         if (showWordCount) {
           const nextUserQuery =
-            allElements
-              .slice(index + 1)
-              .find((candidate) => candidate.matches(userQuerySelector)) || null
+            blocks.slice(index + 1).find((candidate) => candidate.matches(userQuerySelector)) ||
+            null
           item.wordCount = this.calculateAssistantWordCountBetween(
             container,
             element,
@@ -615,44 +603,16 @@ export class PerplexityAdapter extends SiteAdapter {
         return
       }
 
-      const text = element.textContent?.trim() || ""
-      if (!text) return
-
-      const item: OutlineItem = {
-        level: headingLevel,
-        text,
+      const assistantItems = this.collectAssistantOutlineItems(
         element,
-      }
-      item.id = this.buildOutlineOccurrenceId(
-        `heading::${currentGroupId}::${headingLevel}`,
-        this.normalizeUiText(text),
-        headingKeyCounts,
+        currentGroupId,
+        maxLevel,
+        showWordCount,
       )
 
-      if (showWordCount) {
-        let nextBoundary: Element | null = null
-        for (let i = index + 1; i < allElements.length; i += 1) {
-          const candidate = allElements[i]
-          if (candidate.matches(userQuerySelector)) {
-            nextBoundary = candidate
-            break
-          }
-
-          const candidateLevel = this.getOutlineHeadingLevel(candidate)
-          if (candidateLevel !== null && candidateLevel <= headingLevel) {
-            nextBoundary = candidate
-            break
-          }
-        }
-
-        item.wordCount = this.calculateRangeWordCount(
-          element,
-          nextBoundary,
-          element.closest(ASSISTANT_MESSAGE_SELECTOR) || container,
-        )
+      if (assistantItems.length > 0) {
+        outline.push(...assistantItems)
       }
-
-      outline.push(item)
     })
 
     return outline
@@ -1334,6 +1294,105 @@ export class PerplexityAdapter extends SiteAdapter {
     )
   }
 
+  private collectAssistantRoots(container: Element): Element[] {
+    return this.collectTopLevelBlocks(
+      Array.from(container.querySelectorAll(ASSISTANT_MESSAGE_SELECTOR)).filter(
+        (element) =>
+          !this.shouldSkipExportElement(element) && !element.closest(USER_QUERY_SELECTOR),
+      ),
+    )
+  }
+
+  private collectAssistantOutlineItems(
+    assistantRoot: Element,
+    groupId: string,
+    maxLevel: number,
+    showWordCount: boolean,
+  ): OutlineItem[] {
+    const assistantId = this.getAssistantOutlineScopeId(assistantRoot)
+    const occurrenceCounts = new Map<string, number>()
+    const realHeadings = this.collectOutlineHeadingCandidates(assistantRoot, maxLevel)
+
+    if (realHeadings.length > 0) {
+      return realHeadings.flatMap((element, index) => {
+        const level = this.getOutlineHeadingLevel(element)
+        const text = element.textContent?.trim() || ""
+        if (level === null || !text) return []
+
+        const item: OutlineItem = {
+          level,
+          text,
+          element,
+        }
+        item.id = this.buildOutlineOccurrenceId(
+          `heading::${groupId}::${assistantId}::${level}`,
+          this.normalizeUiText(text),
+          occurrenceCounts,
+        )
+
+        if (showWordCount) {
+          let nextBoundary: Element | null = null
+          for (let i = index + 1; i < realHeadings.length; i += 1) {
+            const candidate = realHeadings[i]
+            const candidateLevel = this.getOutlineHeadingLevel(candidate)
+            if (candidateLevel !== null && candidateLevel <= level) {
+              nextBoundary = candidate
+              break
+            }
+          }
+
+          item.wordCount = this.calculateRangeWordCount(element, nextBoundary, assistantRoot)
+        }
+
+        return [item]
+      })
+    }
+
+    return this.extractOutlineFromAssistantMarkdown(
+      assistantRoot,
+      groupId,
+      assistantId,
+      maxLevel,
+      showWordCount,
+    )
+  }
+
+  private extractOutlineFromAssistantMarkdown(
+    assistantRoot: Element,
+    groupId: string,
+    assistantId: string,
+    maxLevel: number,
+    showWordCount: boolean,
+  ): OutlineItem[] {
+    const markdown = this.extractAssistantResponseText(assistantRoot)
+    if (!markdown) return []
+
+    const headings = this.parseMarkdownHeadings(markdown, maxLevel)
+    if (headings.length === 0) return []
+
+    const occurrenceCounts = new Map<string, number>()
+    return headings.map((heading, index) => {
+      const item: OutlineItem = {
+        level: heading.level,
+        text: heading.text,
+        element: assistantRoot,
+        context: `markdown-line:${heading.line}`,
+      }
+      item.id = this.buildOutlineOccurrenceId(
+        `heading::${groupId}::${assistantId}::${heading.level}`,
+        this.normalizeUiText(heading.text),
+        occurrenceCounts,
+      )
+
+      if (showWordCount) {
+        const nextLine = headings[index + 1]?.line ?? null
+        item.wordCount = this.countMarkdownSectionLength(markdown, heading.line, nextLine)
+      }
+
+      return item
+    })
+  }
+
   private isOutlineHeadingCandidate(element: Element, maxLevel: number): boolean {
     if (this.shouldSkipOutlineElement(element)) return false
     if (element.closest("nav, aside, header, footer, [role='dialog'], button, [role='button']")) {
@@ -1360,6 +1419,16 @@ export class PerplexityAdapter extends SiteAdapter {
     }
 
     return null
+  }
+
+  private getAssistantOutlineScopeId(element: Element): string {
+    const id = (element as HTMLElement).id?.trim()
+    if (id) return id
+
+    const labelledBy = element.getAttribute("aria-labelledby")?.trim()
+    if (labelledBy) return labelledBy
+
+    return this.normalizeUiText(element.textContent || "").slice(0, 80) || "assistant"
   }
 
   private compareElementsByDocumentOrder(left: Element, right: Element): number {
@@ -1406,6 +1475,50 @@ export class PerplexityAdapter extends SiteAdapter {
     const nextCount = currentCount + 1
     counts.set(`${prefix}::${safeKey}`, nextCount)
     return `${prefix}::${safeKey}::${nextCount}`
+  }
+
+  private parseMarkdownHeadings(
+    markdown: string,
+    maxLevel: number,
+  ): Array<{ level: number; text: string; line: number }> {
+    const lines = markdown.split(/\r?\n/)
+    const headings: Array<{ level: number; text: string; line: number }> = []
+    let inFence = false
+
+    lines.forEach((line, index) => {
+      if (/^\s*```/.test(line)) {
+        inFence = !inFence
+        return
+      }
+      if (inFence) return
+
+      const match = line.match(/^\s*(#{1,6})\s+(.+?)\s*#*\s*$/)
+      if (!match) return
+
+      const level = match[1].length
+      if (level > maxLevel) return
+
+      const text = match[2].trim()
+      if (!text) return
+
+      headings.push({ level, text, line: index })
+    })
+
+    return headings
+  }
+
+  private countMarkdownSectionLength(
+    markdown: string,
+    startLine: number,
+    nextLine: number | null,
+  ): number {
+    const lines = markdown.split(/\r?\n/)
+    const endLine = nextLine ?? lines.length
+    return lines
+      .slice(startLine + 1, endLine)
+      .join("\n")
+      .replace(/\s+/g, " ")
+      .trim().length
   }
 
   private isValidUserQueryCandidate(element: Element): boolean {
