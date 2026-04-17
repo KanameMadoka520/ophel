@@ -579,11 +579,6 @@ export abstract class SiteAdapter {
   }
 
   /**
-   * 精准查找提交按钮
-   * 当站点存在多个相邻 icon button，且仅靠通用选择器/距离判断容易误判时使用
-   */
-  // NOTE: the legacy comment above refers to findSubmitButton rather than this mount hook.
-  /**
    * Provide a custom anchor for mounting the usage monitor.
    * Override when the default placement near the editor would break layout.
    */
