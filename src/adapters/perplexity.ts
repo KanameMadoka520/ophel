@@ -7,6 +7,7 @@
  * - 会话列表优先从侧边栏 DOM 读取，必要时用线程 API 预拉取做缓存
  */
 import { SITE_IDS } from "~constants"
+import { perplexityNativeThemeCss } from "~styles/native-theme-adapters/perplexity"
 import { DOMToolkit } from "~utils/dom-toolkit"
 import { htmlToMarkdown } from "~utils/exporter"
 
@@ -151,6 +152,10 @@ export class PerplexityAdapter extends SiteAdapter {
 
   getThemeColors(): { primary: string; secondary: string } {
     return { primary: "#1fb8cd", secondary: "#1597aa" }
+  }
+
+  getNativeThemeCss(): string | null {
+    return perplexityNativeThemeCss
   }
 
   getSessionId(): string {
