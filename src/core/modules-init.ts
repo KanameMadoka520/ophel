@@ -229,7 +229,7 @@ export function initMarkdownFixer(ctx: ModulesContext): void {
   if (config && enabled) {
     modules.markdownFixer = new MarkdownFixer(config)
     modules.markdownFixer.start()
-    console.warn(`[Ophel] MarkdownFixer started for ${adapter.getName()}`)
+    console.info(`[Ophel] MarkdownFixer started for ${adapter.getName()}`)
   }
 }
 

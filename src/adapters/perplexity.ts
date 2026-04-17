@@ -553,7 +553,8 @@ export class PerplexityAdapter extends SiteAdapter {
     const rawUserQueries = Array.from(container.querySelectorAll(userQuerySelector))
     const userQueries = this.dedupeUserQueries(
       this.collectTopLevelBlocks(rawUserQueries).filter(
-        (element) => !this.shouldSkipOutlineElement(element),
+        (element) =>
+          !this.shouldSkipOutlineElement(element) && this.isValidUserQueryCandidate(element),
       ),
       container,
     )
@@ -1328,8 +1329,25 @@ export class PerplexityAdapter extends SiteAdapter {
     }).flat()
 
     const candidates = Array.from(new Set(container.querySelectorAll(selectors.join(", "))))
+    const assistantRoots = this.collectTopLevelBlocks(
+      Array.from(container.querySelectorAll(ASSISTANT_MESSAGE_SELECTOR)).filter(
+        (element) =>
+          !this.shouldSkipExportElement(element) && !element.closest(USER_QUERY_SELECTOR),
+      ),
+    )
+
+    assistantRoots.forEach((root) => {
+      root.querySelectorAll("p, li").forEach((element) => {
+        if (this.isPseudoHeadingCandidate(element, maxLevel)) {
+          candidates.push(element)
+        }
+      })
+    })
+
     return this.collectTopLevelBlocks(
-      candidates.filter((element) => this.isOutlineHeadingCandidate(element, maxLevel)),
+      Array.from(new Set(candidates)).filter((element) =>
+        this.isOutlineHeadingCandidate(element, maxLevel),
+      ),
     )
   }
 
@@ -1358,7 +1376,7 @@ export class PerplexityAdapter extends SiteAdapter {
       return Number.isNaN(rawLevel) ? null : rawLevel
     }
 
-    return null
+    return this.inferPseudoHeadingLevel(element)
   }
 
   private compareElementsByDocumentOrder(left: Element, right: Element): number {
@@ -1405,6 +1423,69 @@ export class PerplexityAdapter extends SiteAdapter {
     const nextCount = currentCount + 1
     counts.set(`${prefix}::${safeKey}`, nextCount)
     return `${prefix}::${safeKey}::${nextCount}`
+  }
+
+  private isValidUserQueryCandidate(element: Element): boolean {
+    if (
+      element.closest(
+        ".h-headerHeight.fixed.z-10, header, nav, aside, [role='dialog'], .fixed, .sticky",
+      )
+    ) {
+      return false
+    }
+
+    if (element.closest(ASSISTANT_MESSAGE_SELECTOR)) {
+      return false
+    }
+
+    return Boolean(this.extractUserQueryText(element))
+  }
+
+  private isPseudoHeadingCandidate(element: Element, maxLevel: number): boolean {
+    return (
+      this.inferPseudoHeadingLevel(element) !== null &&
+      this.isOutlineHeadingCandidate(element, maxLevel)
+    )
+  }
+
+  private inferPseudoHeadingLevel(element: Element): number | null {
+    if (!(element instanceof HTMLElement)) return null
+    if (element.matches("li") && element.querySelector("ol, ul")) return null
+    if (element.querySelector("h1, h2, h3, h4, h5, h6, [role='heading']")) return null
+    if (element.closest("pre, code, table, blockquote")) return null
+
+    const text = element.innerText.replace(/\s+/g, " ").trim()
+    if (!text || text.length > 120) return null
+
+    const chineseSectionPattern =
+      /^(?:第[一二三四五六七八九十百千0-9]+(?:阶段|部分|章|节)|[一二三四五六七八九十百千]+[、.．:：])/
+    if (chineseSectionPattern.test(text)) {
+      return 1
+    }
+
+    const numberedPattern = text.match(/^(\d+(?:\.\d+){0,2})[、.)．:：]?\s+/)
+    if (numberedPattern) {
+      const depth = (numberedPattern[1].match(/\./g) || []).length
+      return Math.min(depth + 2, 6)
+    }
+
+    const normalizedText = this.normalizeUiText(text)
+    const strongText = this.normalizeUiText(
+      Array.from(element.querySelectorAll("strong, b"))
+        .map((node) => node.textContent || "")
+        .join(" "),
+    )
+    const isMostlyStrong = Boolean(strongText) && strongText.length / normalizedText.length >= 0.85
+    const looksLikeStandaloneTitle =
+      text.length <= 36 &&
+      !/[。！!；;]/.test(text) &&
+      (!/[：:?？]$/.test(text) || text.length <= 48)
+
+    if (isMostlyStrong && looksLikeStandaloneTitle) {
+      return 1
+    }
+
+    return null
   }
 
   private calculateAssistantWordCountBetween(
