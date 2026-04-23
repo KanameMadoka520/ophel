@@ -3,6 +3,7 @@ import type {
   ConversationDeleteTarget,
   ConversationInfo,
   ConversationObserverConfig,
+  ConversationRenameTarget,
   ExportLifecycleContext,
   SiteDeleteConversationResult,
 } from "~adapters/base"
@@ -60,6 +61,7 @@ export class ConversationManager {
   private observerContainer: Node | null = null
   private titleWatcher: any = null // DOMToolkit watcher instance
   private pollInterval: NodeJS.Timeout | null = null
+  private currentConversationSyncTimer: NodeJS.Timeout | null = null
   private geminiMigrationTimer: NodeJS.Timeout | null = null
   private geminiMigrationRetryCount = 0
 
@@ -137,6 +139,7 @@ export class ConversationManager {
     }
 
     this.startSidebarObserver()
+    this.startCurrentConversationSync()
   }
 
   // Gemini 老数据迁移：数字 cid(0/1/2...) -> 当前邮箱 cid
@@ -317,6 +320,7 @@ export class ConversationManager {
   destroy() {
     this.stopGeminiMigrationRetry()
     this.stopSidebarObserver()
+    this.stopCurrentConversationSync()
   }
 
   updateSettings(settings: { syncUnpin: boolean; syncDelete?: boolean }) {
@@ -371,7 +375,7 @@ export class ConversationManager {
 
     startObserverRetry()
 
-    if (config.shadow) {
+    if (config.shadow || config.enablePolling) {
       this.startPolling()
     }
   }
@@ -470,6 +474,7 @@ export class ConversationManager {
 
   private startPolling() {
     if (this.pollInterval) return
+    const intervalMs = this.observerConfig?.pollIntervalMs || 3000
     this.pollInterval = setInterval(() => {
       if (!this.observerConfig) return
       const config = this.observerConfig
@@ -500,7 +505,7 @@ export class ConversationManager {
           }
         })
       }
-    }, 3000)
+    }, intervalMs)
   }
 
   private stopPolling() {
@@ -508,6 +513,74 @@ export class ConversationManager {
       clearInterval(this.pollInterval)
       this.pollInterval = null
     }
+  }
+
+  private startCurrentConversationSync() {
+    if (this.currentConversationSyncTimer) return
+
+    const syncCurrent = () => {
+      const info = this.siteAdapter.getCurrentConversationInfo()
+      if (!info?.id) return
+
+      const existing = this.conversations[info.id]
+      if (!existing && !info.title?.trim()) {
+        return
+      }
+      if (!existing) {
+        getConversationsStore().addConversation({
+          id: info.id,
+          siteId: this.siteAdapter.getSiteId(),
+          cid: info.cid,
+          title: info.title || t("untitledConversation"),
+          url: info.url || window.location.href,
+          folderId: this.lastUsedFolderId || "inbox",
+          pinned: info.isPinned || false,
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+        })
+        this.notifyDataChange()
+        return
+      }
+
+      const updates: Partial<Conversation> = {}
+      let needsUpdate = false
+
+      if (this.shouldUpdateConversationTitle(existing.title, info.title, existing.siteId)) {
+        updates.title = info.title
+        needsUpdate = true
+      }
+      if (info.url && info.url !== existing.url) {
+        updates.url = info.url
+        needsUpdate = true
+      }
+      if (info.cid !== undefined && info.cid !== existing.cid) {
+        updates.cid = info.cid
+        needsUpdate = true
+      }
+      if (info.isPinned !== undefined && info.isPinned !== existing.pinned) {
+        if (info.isPinned) {
+          updates.pinned = true
+          needsUpdate = true
+        } else if (this.syncUnpin) {
+          updates.pinned = false
+          needsUpdate = true
+        }
+      }
+
+      if (needsUpdate) {
+        getConversationsStore().updateConversation(info.id, updates)
+        this.notifyDataChange()
+      }
+    }
+
+    syncCurrent()
+    this.currentConversationSyncTimer = setInterval(syncCurrent, 1500)
+  }
+
+  private stopCurrentConversationSync() {
+    if (!this.currentConversationSyncTimer) return
+    clearInterval(this.currentConversationSyncTimer)
+    this.currentConversationSyncTimer = null
   }
 
   private monitorConversationTitle(el: HTMLElement, id: string) {
@@ -760,9 +833,24 @@ export class ConversationManager {
     return getConversationsStore().togglePin(convId)
   }
 
-  renameConversation(convId: string, newTitle: string) {
-    if (newTitle) {
-      getConversationsStore().updateConversation(convId, { title: newTitle })
+  async renameConversation(convId: string, newTitle: string) {
+    const normalizedTitle = newTitle.trim()
+    if (!normalizedTitle) return
+
+    const conv = this.conversations[convId]
+    if (conv) {
+      getConversationsStore().updateConversation(convId, { title: normalizedTitle })
+      this.notifyDataChange()
+    }
+
+    const target: ConversationRenameTarget = {
+      id: convId,
+      title: conv?.title,
+      url: conv?.url,
+    }
+    const result = await this.siteAdapter.renameConversationOnSite(target, normalizedTitle)
+    if (!result.success && result.method !== "none") {
+      showToast(`已在面板重命名，但云端重命名失败${result.reason ? `: ${result.reason}` : ""}`)
     }
   }
 

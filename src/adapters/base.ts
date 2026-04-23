@@ -35,6 +35,12 @@ export interface ConversationDeleteTarget {
   url?: string
 }
 
+export interface ConversationRenameTarget {
+  id: string
+  title?: string
+  url?: string
+}
+
 export interface SiteDeleteConversationResult {
   id: string
   success: boolean
@@ -87,6 +93,8 @@ export interface ConversationObserverConfig {
   shadow: boolean
   extractInfo: (el: Element) => ConversationInfo | null
   getTitleElement: (el: Element) => Element | null
+  enablePolling?: boolean
+  pollIntervalMs?: number
 }
 
 export interface AnchorData {
@@ -204,6 +212,17 @@ export function normalizeAssistantMermaidSource(source: string): string {
   if (!normalized) return ""
 
   const lines = normalized.split("\n")
+
+  // Some sites wrap code blocks as:
+  // text\nflowchart TD ...
+  // Strip a leading plain-text language marker before Mermaid detection.
+  if (lines.length > 1) {
+    const firstLine = lines[0].trim().toLowerCase()
+    if (/^(text|plain(?:\s|-)?text|text\/plain|markdown|text\/markdown|md|txt)$/.test(firstLine)) {
+      return normalizeAssistantMermaidSource(lines.slice(1).join("\n"))
+    }
+  }
+
   const firstMeaningfulLineIndex = getFirstMeaningfulMermaidLineIndex(lines)
   if (firstMeaningfulLineIndex === -1) {
     return normalized
@@ -446,6 +465,17 @@ export abstract class SiteAdapter {
     return results
   }
 
+  async renameConversationOnSite(
+    _target: ConversationRenameTarget,
+    _newTitle: string,
+  ): Promise<{ success: boolean; method: "api" | "ui" | "none"; reason?: string }> {
+    return {
+      success: false,
+      method: "none",
+      reason: "not_supported",
+    }
+  }
+
   async loadAllConversations(): Promise<void> {
     const container = this.getSidebarScrollContainer()
     if (!container) return
@@ -498,6 +528,44 @@ export abstract class SiteAdapter {
    */
   getModelLockCheckText(selectorBtn?: HTMLElement | null): string {
     return selectorBtn?.textContent || selectorBtn?.innerText || ""
+  }
+
+  /**
+   * Whether the site's model selector menu is currently open.
+   * Adapters can override this so the shared model locker avoids
+   * interfering with a manually opened model menu.
+   */
+  isModelSelectorOpen(): boolean {
+    return false
+  }
+
+  /**
+   * Some sites need a persistent model-lock monitor rather than a short
+   * relock window after route changes.
+   */
+  usesPersistentModelLockMonitor(): boolean {
+    return false
+  }
+
+  getModelLockMonitorInterval(): number {
+    return 1000
+  }
+
+  getModelLockMonitorRoot(): Node | null {
+    return typeof document !== "undefined" ? document.body : null
+  }
+
+  getModelLockMutationDebounce(): number {
+    return 120
+  }
+
+  /**
+   * Whether the site's model-lock UI is currently available.
+   * Sites with temporary mode/tool menus instead of a model selector can
+   * return false so the shared locker waits for the selector to come back.
+   */
+  isModelLockUiReady(): boolean {
+    return true
   }
 
   /** 获取网络监控配置 */

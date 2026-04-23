@@ -73,6 +73,13 @@ const RESPONSE_CONTAINER_SELECTOR = [
 ].join(", ")
 
 const SIDEBAR_LINK_SELECTOR = "a[href^='/search/'], a[href^='/page/']"
+const SIDEBAR_ITEM_CONTAINER_SELECTORS = [
+  ".group\\/sidebar-submenu",
+  "[data-title-hover='true']",
+  "[data-testid='sidebar-item']",
+  "li",
+  "[role='listitem']",
+].join(", ")
 const SIDEBAR_SCROLL_CONTAINER_SELECTORS = [".group\\/sidebar", "aside", "nav"]
 const THREAD_TITLE_SELECTOR =
   ".h-headerHeight.fixed.z-10 .cursor-pointer.transition.duration-300.hover\\:opacity-70, input[placeholder='Untitled']"
@@ -88,15 +95,76 @@ const DELETE_FLOW_TIMEOUT_MS = 5_000
 const THREAD_ACTION_BUTTON_SELECTORS = [
   'button[aria-label="Thread actions"]',
   'button[aria-label*="Thread actions" i]',
+  'button[aria-label*="More" i]',
+  'button[title*="More" i]',
+  'button[aria-haspopup="menu"]',
+  '[role="button"][aria-haspopup="menu"]',
   'button[aria-label*="话题"]',
   'button[aria-label*="对话"]',
   'button[aria-label*="线程"]',
 ]
 
-const DELETE_MENU_ITEM_LABELS = ["Delete", "删除"]
-const CONFIRM_BUTTON_LABELS = ["Confirm", "确认", "Delete", "删除"]
+const DELETE_MENU_ITEM_LABELS = ["Delete", "删除", "删除问题", "Delete question", "Delete thread"]
+const RENAME_MENU_ITEM_LABELS = ["Rename", "重命名", "Edit title", "编辑问题标题"]
+const CONFIRM_BUTTON_LABELS = ["Confirm", "确认", "确定", "Delete", "删除", "Yes", "OK"]
+const CANCEL_BUTTON_LABELS = ["Cancel", "取消", "No"]
+const SAVE_BUTTON_LABELS = ["Save", "保存"]
+const RENAME_DIALOG_TITLE_LABELS = [
+  "编辑问题标题",
+  "Rename",
+  "Rename thread",
+  "Edit title",
+  "Edit question title",
+]
 
 const THREAD_ACTION_LABELS = ["Thread actions", "话题操作", "对话操作", "线程操作"]
+const THREAD_ACTION_SIGNAL_LABELS = [
+  ...THREAD_ACTION_LABELS,
+  "More",
+  "更多",
+  "菜单",
+  "menu",
+  "...",
+  "…",
+]
+const MODEL_MENU_HINTS = [
+  "best",
+  "sonar",
+  "gpt",
+  "claude",
+  "gemini",
+  "nemotron",
+  "o1",
+  "o3",
+  "o4",
+  "r1",
+  "最佳",
+  "模型",
+]
+const MODEL_SELECTOR_PRIMARY_HINTS = [
+  "best",
+  "sonar",
+  "gpt",
+  "claude",
+  "gemini",
+  "nemotron",
+  "o1",
+  "o3",
+  "o4",
+  "r1",
+  "最佳",
+]
+const MODEL_SELECTOR_BUTTON_SELECTORS = [
+  'button[aria-label="模型"][aria-haspopup="menu"]',
+  'button[aria-label*="模型"][aria-haspopup="menu"]',
+  'button[aria-label*="GPT"][aria-haspopup="menu"]',
+  'button[aria-label*="Gemini"][aria-haspopup="menu"]',
+  'button[aria-label*="Claude"][aria-haspopup="menu"]',
+  'button[aria-label*="Sonar"][aria-haspopup="menu"]',
+]
+const MODEL_SELECTOR_EXCLUDE_PATTERNS = [
+  /线程操作|讨论线程的操作|更多操作|下载|改写问题|添加文件或工具|分享|深度研究|连接器和来源|上传文件或图片|模型委员会|附件|来源|研究/i,
+]
 
 const ZEN_MODE_HIDE_SELECTORS = [
   ".group\\/sidebar",
@@ -136,6 +204,7 @@ export class PerplexityAdapter extends SiteAdapter {
   private threadListCache: ConversationInfo[] = []
   private threadListCacheExpiresAt = 0
   private loadAllConversationsPromise: Promise<void> | null = null
+  private lastManualModelSelectorToggleAt = 0
 
   match(): boolean {
     return HOSTNAMES.has(window.location.hostname)
@@ -185,13 +254,38 @@ export class PerplexityAdapter extends SiteAdapter {
   }
 
   getConversationTitle(): string | null {
+    const sessionId = this.getSessionId()
+    if (sessionId) {
+      const sidebarLink = this.findSidebarConversationLink(sessionId)
+      if (sidebarLink) {
+        const sidebarTitle = this.extractConversationTitle(sidebarLink, sessionId)
+        if (sidebarTitle) {
+          return sidebarTitle
+        }
+      }
+    }
+
     const titleElement = document.querySelector(THREAD_TITLE_SELECTOR)
     const title =
       titleElement instanceof HTMLInputElement
         ? titleElement.value.trim()
         : titleElement?.textContent?.trim() || ""
 
-    return title || this.getSessionName()
+    return title || null
+  }
+
+  getCurrentConversationInfo(): ConversationInfo | null {
+    const id = this.getSessionId()
+    if (!id || this.isNewConversation()) {
+      return null
+    }
+
+    return {
+      id,
+      title: this.getConversationTitle() || "",
+      url: window.location.href,
+      cid: this.getCurrentCid() || undefined,
+    }
   }
 
   getTextareaSelectors(): string[] {
@@ -396,6 +490,8 @@ export class PerplexityAdapter extends SiteAdapter {
     return {
       selector: SIDEBAR_LINK_SELECTOR,
       shadow: false,
+      enablePolling: true,
+      pollIntervalMs: 1500,
       extractInfo: (element) => this.extractConversationInfo(element),
       getTitleElement: (element) => element.querySelector("span, div[dir='auto']") || element,
     }
@@ -404,13 +500,25 @@ export class PerplexityAdapter extends SiteAdapter {
   async deleteConversationOnSite(
     target: ConversationDeleteTarget,
   ): Promise<SiteDeleteConversationResult> {
-    const success = await this.deleteConversationViaUi(target.id)
+    const result = await this.deleteConversationViaUi(target.id)
 
     return {
       id: target.id,
-      success,
-      method: success ? "ui" : "none",
-      reason: success ? undefined : "ui_failed",
+      success: result.success,
+      method: result.success ? "ui" : "none",
+      reason: result.success ? undefined : result.reason,
+    }
+  }
+
+  async renameConversationOnSite(
+    target: { id: string; title?: string; url?: string },
+    newTitle: string,
+  ): Promise<{ success: boolean; method: "api" | "ui" | "none"; reason?: string }> {
+    const result = await this.renameConversationViaUi(target.id, newTitle)
+    return {
+      success: result.success,
+      method: "ui",
+      reason: result.success ? undefined : result.reason,
     }
   }
 
@@ -682,6 +790,256 @@ export class PerplexityAdapter extends SiteAdapter {
     }
   }
 
+  getModelLockCheckText(selectorBtn?: HTMLElement | null): string {
+    return this.getCurrentPerplexityModelText() || super.getModelLockCheckText(selectorBtn)
+  }
+
+  isModelSelectorOpen(): boolean {
+    const selectorBtn = this.findPerplexityModelSelectorButton()
+    if (selectorBtn) {
+      const expanded = (selectorBtn.getAttribute("aria-expanded") || "").toLowerCase()
+      const state = (selectorBtn.getAttribute("data-state") || "").toLowerCase()
+      if (expanded === "true" || state === "open") {
+        return true
+      }
+    }
+
+    return this.findPerplexityModelMenuRoots(selectorBtn || null).length > 0
+  }
+
+  isModelLockUiReady(): boolean {
+    return this.findPerplexityModelSelectorButton() !== null
+  }
+
+  usesPersistentModelLockMonitor(): boolean {
+    return true
+  }
+
+  getModelLockMonitorInterval(): number {
+    return 1200
+  }
+
+  getModelLockMonitorRoot(): Node | null {
+    return (
+      this.getTextareaElement()?.closest("form") || document.querySelector("main") || document.body
+    )
+  }
+
+  getModelLockMutationDebounce(): number {
+    return 80
+  }
+
+  clickModelSelector(): boolean {
+    const button = this.findPerplexityModelSelectorButton()
+    if (!button) {
+      void this.showPerplexityDebugToast(
+        "[Perplexity Debug] model selector button not found",
+        "perplexity-model-selector-missing",
+      )
+      return false
+    }
+
+    this.lastManualModelSelectorToggleAt = Date.now()
+    void this.togglePerplexityModelSelector(button)
+    return true
+  }
+
+  lockModel(keyword: string, onSuccess?: () => void): void {
+    const target = this.normalizeUiText(keyword)
+    if (!target) return
+
+    void (async () => {
+      const manualToggleCooldownMs = 900
+      const elapsedSinceManualToggle = Date.now() - this.lastManualModelSelectorToggleAt
+      if (elapsedSinceManualToggle >= 0 && elapsedSinceManualToggle < manualToggleCooldownMs) {
+        return
+      }
+
+      let lastFailureReason = "unknown"
+
+      for (let attempt = 0; attempt < 5; attempt += 1) {
+        this.logPerplexityModelLockDebug("attempt_start", {
+          keyword,
+          normalizedKeyword: target,
+          attempt: attempt + 1,
+        })
+
+        const selectorBtn = await this.waitForValue(
+          () => this.findPerplexityModelSelectorButton(),
+          3_000,
+        )
+        if (!selectorBtn) {
+          lastFailureReason = "selector_button_not_found"
+          this.logPerplexityModelLockDebug("selector_missing", {
+            keyword,
+            attempt: attempt + 1,
+          })
+          break
+        }
+
+        this.logPerplexityModelLockDebug("selector_found", {
+          keyword,
+          attempt: attempt + 1,
+          text: selectorBtn.textContent || "",
+          ariaLabel: selectorBtn.getAttribute("aria-label"),
+          dataState: selectorBtn.getAttribute("data-state"),
+          ariaExpanded: selectorBtn.getAttribute("aria-expanded"),
+          rect: this.getDebugRect(selectorBtn),
+        })
+
+        const currentModel = this.getCurrentPerplexityModelText()
+        if (currentModel.includes(target) || this.isTargetModelChecked(target)) {
+          this.logPerplexityModelLockDebug("already_on_target", {
+            keyword,
+            currentText: currentModel,
+          })
+          onSuccess?.()
+          return
+        }
+
+        if (!this.isModelSelectorOpen()) {
+          const opened = this.openPerplexityModelSelector()
+          if (!opened) {
+            lastFailureReason = "click_model_selector_failed"
+            this.logPerplexityModelLockDebug("click_model_selector_failed", {
+              keyword,
+              attempt: attempt + 1,
+            })
+            await this.sleep(250)
+            continue
+          }
+        }
+        await this.sleep(300)
+
+        const menuItems = await this.waitForValue(() => {
+          const items = this.collectPerplexityOpenModelMenuItemsStrict(selectorBtn)
+          return items.length > 0 ? items : null
+        }, 3_000)
+
+        if (!menuItems || menuItems.length === 0) {
+          lastFailureReason = "click_model_selector_failed"
+          this.logPerplexityModelLockDebug("menu_scan_empty", {
+            keyword,
+            attempt: attempt + 1,
+          })
+          lastFailureReason = "first_menu_scan_empty"
+          this.openPerplexityModelSelector()
+          await this.sleep(350)
+          const retryItems = this.collectPerplexityOpenModelMenuItemsStrict(selectorBtn)
+          if (retryItems.length === 0) {
+            lastFailureReason = "retry_menu_scan_empty"
+            this.logPerplexityModelLockDebug("menu_retry_empty", {
+              keyword,
+              attempt: attempt + 1,
+              rootCount: this.findPerplexityModelMenuRoots(selectorBtn).length,
+              checkedItems: this.getCheckedModelItemTexts(),
+            })
+            document.body.click()
+            await this.sleep(300)
+            continue
+          }
+        }
+
+        const effectiveItems =
+          menuItems && menuItems.length > 0
+            ? menuItems
+            : this.collectPerplexityOpenModelMenuItemsStrict(selectorBtn)
+
+        if (!effectiveItems || effectiveItems.length === 0) {
+          lastFailureReason = "effective_menu_items_empty"
+          this.logPerplexityModelLockDebug("effective_items_empty", {
+            keyword,
+            attempt: attempt + 1,
+          })
+          document.body.click()
+          await this.sleep(300)
+          continue
+        }
+
+        this.logPerplexityModelLockDebug("menu_items_found", {
+          keyword,
+          attempt: attempt + 1,
+          count: effectiveItems.length,
+          items: effectiveItems.slice(0, 10).map((item) => ({
+            text: this.normalizeUiText(item.textContent || ""),
+            role: item.getAttribute("role"),
+            ariaChecked: item.getAttribute("aria-checked"),
+            dataState: item.getAttribute("data-state"),
+            rect: this.getDebugRect(item),
+          })),
+        })
+
+        const matchedItem = this.findPerplexityModelMenuItemStrict(effectiveItems, target)
+        if (!matchedItem) {
+          lastFailureReason = "matched_item_not_found"
+          const preview = effectiveItems
+            .slice(0, 8)
+            .map((item) => this.normalizeUiText(item.textContent || "").slice(0, 32))
+            .filter(Boolean)
+            .join(" | ")
+          this.logPerplexityModelLockDebug("matched_item_missing", {
+            keyword,
+            attempt: attempt + 1,
+            menuPreview: preview,
+          })
+          void this.showPerplexityDebugToast(
+            `[Perplexity Debug] target model not found: ${keyword}${preview ? ` | menu: ${preview}` : ""}`,
+            "perplexity-model-lock-not-found",
+          )
+          document.body.click()
+          return
+        }
+
+        this.logPerplexityModelLockDebug("matched_item_found", {
+          keyword,
+          attempt: attempt + 1,
+          text: this.normalizeUiText(matchedItem.textContent || ""),
+          role: matchedItem.getAttribute("role"),
+          rect: this.getDebugRect(matchedItem),
+        })
+
+        this.activatePerplexityModelMenuItem(matchedItem)
+
+        const switched = await this.waitForCondition(() => {
+          if (this.getCurrentPerplexityModelText().includes(target)) return true
+          return this.isTargetModelChecked(target)
+        }, 3_500)
+
+        await this.closePerplexityModelSelector(selectorBtn)
+
+        if (switched) {
+          this.logPerplexityModelLockDebug("switch_confirmed", {
+            keyword,
+            attempt: attempt + 1,
+            checkedItems: this.getCheckedModelItemTexts(),
+          })
+          onSuccess?.()
+          return
+        }
+
+        lastFailureReason = "switch_not_confirmed"
+        this.logPerplexityModelLockDebug("switch_not_confirmed", {
+          keyword,
+          attempt: attempt + 1,
+          checkedItems: this.getCheckedModelItemTexts(),
+          selectorText: this.findPerplexityModelSelectorButton()?.textContent || "",
+        })
+        await this.closePerplexityModelSelector(selectorBtn)
+        await this.sleep(300)
+      }
+
+      this.logPerplexityModelLockDebug("lock_failed", {
+        keyword,
+        reason: lastFailureReason,
+        checkedItems: this.getCheckedModelItemTexts(),
+      })
+      void this.showPerplexityDebugToast(
+        `[Perplexity Debug] model selection failed for "${keyword}" | ${lastFailureReason}`,
+        "perplexity-model-lock-menu",
+      )
+    })()
+  }
+
   async toggleTheme(targetMode: "light" | "dark" | "system"): Promise<boolean> {
     try {
       const root = document.documentElement
@@ -801,7 +1159,10 @@ export class PerplexityAdapter extends SiteAdapter {
     }
   }
 
-  private async deleteConversationViaUi(id: string): Promise<boolean> {
+  private async deleteConversationViaUi(
+    id: string,
+  ): Promise<{ success: boolean; reason?: string }> {
+    let sidebarReason: string | undefined
     const sidebarLink = await this.waitForValue(() => this.findSidebarConversationLink(id), 600)
     if (sidebarLink) {
       const container = this.findConversationItemContainer(sidebarLink)
@@ -810,21 +1171,34 @@ export class PerplexityAdapter extends SiteAdapter {
         triggerScope: container || sidebarLink,
       })
 
-      if (actionButton && (await this.confirmDeleteFromOpenMenu())) {
-        this.syncConversationListAfterDelete(id)
-        return true
+      if (actionButton) {
+        const result = await this.confirmDeleteFromOpenMenu(id, false, actionButton)
+        if (result.success) {
+          this.syncConversationListAfterDelete(id)
+          return { success: true }
+        }
+
+        sidebarReason = result.reason
+      } else {
+        sidebarReason = "sidebar_action_button_not_found"
       }
     }
 
     if (this.getSessionId() !== id && !this.navigateToConversation(id)) {
-      return false
+      return { success: false, reason: sidebarReason || "navigate_failed" }
     }
 
     const ready = await this.waitForCondition(
       () => this.getSessionId() === id,
       DELETE_FLOW_TIMEOUT_MS,
     )
-    if (!ready) return false
+    if (!ready) {
+      void this.showPerplexityDebugToast(
+        `[Perplexity Debug] delete target did not become active: ${id}`,
+        "perplexity-delete-session-not-ready",
+      )
+      return { success: false, reason: sidebarReason || "session_not_ready" }
+    }
 
     const actionButton = await this.openThreadActionMenu({
       preferredContainer: document.querySelector(
@@ -832,14 +1206,120 @@ export class PerplexityAdapter extends SiteAdapter {
       ) as HTMLElement | null,
       triggerScope: document.body,
     })
-    if (!actionButton) return false
-
-    const deleted = await this.confirmDeleteFromOpenMenu()
-    if (deleted) {
-      this.syncConversationListAfterDelete(id)
+    if (!actionButton) {
+      void this.showPerplexityDebugToast(
+        `[Perplexity Debug] conversation action button not found: ${id}`,
+        "perplexity-delete-action-button",
+      )
+      return { success: false, reason: sidebarReason || "action_button_not_found" }
     }
 
-    return deleted
+    const deleted = await this.confirmDeleteFromOpenMenu(id, true, actionButton)
+    if (deleted.success) {
+      this.syncConversationListAfterDelete(id)
+      return { success: true }
+    }
+
+    return { success: false, reason: deleted.reason || sidebarReason || "deletion_not_observed" }
+  }
+
+  private async renameConversationViaUi(
+    id: string,
+    newTitle: string,
+  ): Promise<{ success: boolean; reason?: string }> {
+    const normalizedTitle = newTitle.trim()
+    if (!normalizedTitle) {
+      return { success: false, reason: "empty_title" }
+    }
+
+    const sidebarLink = await this.waitForValue(() => this.findSidebarConversationLink(id), 1_200)
+    if (!sidebarLink) {
+      void this.showPerplexityDebugToast(
+        `[Perplexity Debug] rename target not found in sidebar: ${id}`,
+        "perplexity-rename-sidebar-link",
+      )
+      return { success: false, reason: "sidebar_link_not_found" }
+    }
+
+    const container = this.findConversationItemContainer(sidebarLink)
+    const actionButton = await this.openThreadActionMenu({
+      preferredContainer: container,
+      triggerScope: container || sidebarLink,
+      menuOpenedCheck: () => this.findOpenRenameMenuItem(sidebarLink) !== null,
+    })
+    if (!actionButton) {
+      void this.showPerplexityDebugToast(
+        `[Perplexity Debug] rename action button not found: ${id}`,
+        "perplexity-rename-action-button",
+      )
+      return { success: false, reason: "rename_action_button_not_found" }
+    }
+
+    const renameItem = await this.waitForValue(
+      () => this.findOpenRenameMenuItem(actionButton),
+      DELETE_FLOW_TIMEOUT_MS,
+    )
+    if (!renameItem) {
+      void this.showPerplexityDebugToast(
+        `[Perplexity Debug] rename menu item not found: ${id}`,
+        "perplexity-rename-menu-item",
+      )
+      return { success: false, reason: "rename_menu_item_not_found" }
+    }
+
+    this.simulateClick(renameItem)
+
+    const dialog = await this.waitForValue(() => this.findRenameDialog(), 2_000)
+    if (!dialog) {
+      void this.showPerplexityDebugToast(
+        `[Perplexity Debug] rename dialog not found: ${id}`,
+        "perplexity-rename-dialog",
+      )
+      return { success: false, reason: "rename_dialog_not_found" }
+    }
+
+    const editor = this.findRenameDialogEditor(dialog)
+    if (!editor) {
+      void this.showPerplexityDebugToast(
+        `[Perplexity Debug] rename editor not found: ${id}`,
+        "perplexity-rename-editor",
+      )
+      return { success: false, reason: "rename_editor_not_found" }
+    }
+
+    this.setRenameDialogValue(editor, normalizedTitle)
+
+    const saveButton = await this.waitForValue(() => this.findRenameSaveButton(dialog), 1_500)
+    if (!saveButton) {
+      void this.showPerplexityDebugToast(
+        `[Perplexity Debug] rename save button not found: ${id}`,
+        "perplexity-rename-save-button",
+      )
+      return { success: false, reason: "rename_save_button_not_found" }
+    }
+
+    this.simulateClick(saveButton)
+
+    const renamed = await this.waitForCondition(() => {
+      const link = this.findSidebarConversationLink(id)
+      if (!link) return false
+      const title = this.extractConversationTitle(link, id)
+      return (
+        this.normalizeConversationTitle(title, id) ===
+        this.normalizeConversationTitle(normalizedTitle, id)
+      )
+    }, 3_000)
+
+    if (!renamed) {
+      void this.showPerplexityDebugToast(
+        `[Perplexity Debug] rename was not observed on site: ${id}`,
+        "perplexity-rename-not-observed",
+      )
+      return { success: false, reason: "rename_not_observed" }
+    }
+
+    this.syncConversationListAfterRename(id, normalizedTitle)
+    return { success: true }
   }
 
   private findScrollableParent(element: Element | null): HTMLElement | null {
@@ -859,14 +1339,20 @@ export class PerplexityAdapter extends SiteAdapter {
     this.threadListCache = this.threadListCache.filter((item) => item.id !== id)
     this.threadListCacheExpiresAt = Math.min(this.threadListCacheExpiresAt, Date.now() + 10_000)
 
-    document.querySelectorAll(SIDEBAR_LINK_SELECTOR).forEach((element) => {
-      const anchor = element as HTMLAnchorElement
+    this.getNativeSidebarConversationLinks().forEach((anchor) => {
       if (this.parseThreadSlugFromUrl(anchor.getAttribute("href") || anchor.href || "") !== id)
         return
 
       const container = this.findConversationItemContainer(anchor)
       ;(container || anchor).remove()
     })
+  }
+
+  private syncConversationListAfterRename(id: string, title: string): void {
+    this.threadListCache = this.threadListCache.map((item) =>
+      item.id === id ? { ...item, title } : item,
+    )
+    this.threadListCacheExpiresAt = Math.min(this.threadListCacheExpiresAt, Date.now() + 10_000)
   }
 
   private parseThreadSlugFromUrl(url: string): string {
@@ -883,6 +1369,7 @@ export class PerplexityAdapter extends SiteAdapter {
   private extractConversationInfo(element: Element): ConversationInfo | null {
     const anchor = element.closest("a") as HTMLAnchorElement | null
     if (!anchor) return null
+    if (!this.isNativeSidebarConversationLink(anchor)) return null
 
     const slug = this.parseThreadSlugFromUrl(anchor.href || anchor.getAttribute("href") || "")
     if (!slug) return null
@@ -898,15 +1385,9 @@ export class PerplexityAdapter extends SiteAdapter {
   }
 
   private collectConversationListFromDom(): ConversationInfo[] {
-    const root =
-      (this.getSidebarScrollContainer() as ParentNode | null) ||
-      document.querySelector(".group\\/sidebar") ||
-      document.querySelector("aside") ||
-      document
-    const links = root.querySelectorAll(SIDEBAR_LINK_SELECTOR)
     const result = new Map<string, ConversationInfo>()
 
-    links.forEach((link) => {
+    this.getNativeSidebarConversationLinks().forEach((link) => {
       const info = this.extractConversationInfo(link)
       if (!info) return
       result.set(info.id, info)
@@ -916,9 +1397,8 @@ export class PerplexityAdapter extends SiteAdapter {
   }
 
   private findSidebarConversationLink(id: string): HTMLAnchorElement | null {
-    const links = document.querySelectorAll(SIDEBAR_LINK_SELECTOR)
-    for (const link of Array.from(links)) {
-      const anchor = link as HTMLAnchorElement
+    const links = this.getNativeSidebarConversationLinks()
+    for (const anchor of links) {
       const slug = this.parseThreadSlugFromUrl(anchor.getAttribute("href") || anchor.href || "")
       if (slug === id) {
         return anchor
@@ -928,10 +1408,86 @@ export class PerplexityAdapter extends SiteAdapter {
     return null
   }
 
+  private findPerplexityModelSelectorButton(): HTMLElement | null {
+    const editor = this.getTextareaElement()
+    const scopes = [
+      editor?.closest("form"),
+      editor?.parentElement,
+      editor?.closest("main"),
+      document.querySelector("main"),
+      document.body,
+    ].filter(Boolean) as ParentNode[]
+
+    let best: { element: HTMLElement; score: number } | null = null
+
+    for (const scope of scopes) {
+      for (const selector of MODEL_SELECTOR_BUTTON_SELECTORS) {
+        const exactCandidates = scope.querySelectorAll(selector)
+        for (const candidate of Array.from(exactCandidates)) {
+          if (!(candidate instanceof HTMLElement)) continue
+          if (
+            candidate.closest(
+              "[role='menu'], [role='listbox'], [data-radix-popper-content-wrapper], [data-radix-portal]",
+            )
+          ) {
+            continue
+          }
+          if (this.isElementInsideOphel(candidate)) continue
+          if (!this.isVisibleElement(candidate) || this.isDisabledActionButton(candidate)) continue
+          if (!this.isPerplexityModelSelectorCandidate(candidate)) continue
+          const score = this.scorePerplexityModelSelectorCandidate(candidate, editor) + 200
+          if (!best || score > best.score) {
+            best = { element: candidate, score }
+          }
+        }
+      }
+
+      const candidates = scope.querySelectorAll(
+        'button, [role="button"], [role="combobox"], [aria-haspopup="menu"], [aria-haspopup="listbox"], [aria-haspopup="dialog"]',
+      )
+      for (const candidate of Array.from(candidates)) {
+        if (!(candidate instanceof HTMLElement)) continue
+        if (
+          candidate.closest(
+            "[role='menu'], [role='listbox'], [data-radix-popper-content-wrapper], [data-radix-portal]",
+          )
+        ) {
+          continue
+        }
+        if (this.isElementInsideOphel(candidate)) continue
+        if (!this.isVisibleElement(candidate) || this.isDisabledActionButton(candidate)) continue
+        if (candidate.matches(SUBMIT_BUTTON_SELECTOR) || candidate.matches(STOP_BUTTON_SELECTOR)) {
+          continue
+        }
+        if (!this.isPerplexityModelSelectorCandidate(candidate)) continue
+
+        const score = this.scorePerplexityModelSelectorCandidate(candidate, editor)
+        if (!best || score > best.score) {
+          best = { element: candidate, score }
+        }
+      }
+    }
+
+    return best?.element || null
+  }
+
+  private isPerplexityModelSelectorCandidate(candidate: HTMLElement): boolean {
+    const signal = this.getUiSignalText(candidate)
+    if (!this.looksLikePerplexityModelSelector(candidate)) return false
+    if (MODEL_SELECTOR_EXCLUDE_PATTERNS.some((pattern) => pattern.test(signal))) return false
+
+    const hasExplicitModelLabel =
+      signal.includes("模型") ||
+      MODEL_SELECTOR_PRIMARY_HINTS.some((hint) => signal.includes(this.normalizeUiText(hint)))
+
+    return hasExplicitModelLabel
+  }
+
   private findConversationItemContainer(anchor: Element | null): HTMLElement | null {
     if (!(anchor instanceof HTMLElement)) return null
 
-    return (anchor.closest("li") ||
+    return (anchor.closest(SIDEBAR_ITEM_CONTAINER_SELECTORS) ||
+      anchor.closest("li") ||
       anchor.closest("[role='listitem']") ||
       anchor.closest(".group") ||
       anchor.parentElement) as HTMLElement | null
@@ -1053,12 +1609,343 @@ export class PerplexityAdapter extends SiteAdapter {
     return results
   }
 
+  private getNativeSidebarConversationLinks(): HTMLAnchorElement[] {
+    const root = this.getNativeSidebarRoot()
+    if (!root) return []
+
+    const links = root.querySelectorAll(SIDEBAR_LINK_SELECTOR)
+    const results: HTMLAnchorElement[] = []
+    const seen = new Set<HTMLAnchorElement>()
+
+    for (const link of Array.from(links)) {
+      if (!(link instanceof HTMLAnchorElement)) continue
+      if (seen.has(link)) continue
+      if (!this.isNativeSidebarConversationLink(link)) continue
+      seen.add(link)
+      results.push(link)
+    }
+
+    return results
+  }
+
+  private getNativeSidebarRoot(): ParentNode | null {
+    const explicitRoots = [
+      this.getSidebarScrollContainer(),
+      document.querySelector(".group\\/sidebar"),
+      document.querySelector("aside"),
+      document.querySelector("nav"),
+    ].filter(Boolean) as Element[]
+
+    for (const root of explicitRoots) {
+      if (this.isElementInsideOphel(root)) continue
+      if (
+        root.querySelector(
+          ".group\\/sidebar-submenu a[href^='/search/'], .group\\/sidebar-submenu a[href^='/page/']",
+        )
+      ) {
+        return root
+      }
+    }
+
+    const item = document.querySelector(".group\\/sidebar-submenu")
+    if (item && !this.isElementInsideOphel(item)) {
+      return item.parentElement || item
+    }
+
+    return null
+  }
+
+  private isNativeSidebarConversationLink(
+    anchor: HTMLAnchorElement | null,
+  ): anchor is HTMLAnchorElement {
+    if (!(anchor instanceof HTMLAnchorElement)) return false
+    if (!anchor.isConnected) return false
+    if (this.isElementInsideOphel(anchor)) return false
+
+    const href = anchor.getAttribute("href") || anchor.href || ""
+    const slug = this.parseThreadSlugFromUrl(href)
+    if (!slug) return false
+
+    const row = anchor.closest(SIDEBAR_ITEM_CONTAINER_SELECTORS)
+    if (row && !this.isElementInsideOphel(row as Element)) {
+      return true
+    }
+
+    const root = this.getNativeSidebarRoot()
+    return Boolean(root && root.contains(anchor))
+  }
+
+  private isElementInsideOphel(element: Element | null): boolean {
+    return Boolean(element?.closest(".gh-root"))
+  }
+
+  private findPerplexityModelMenuRoots(anchor: HTMLElement | null): HTMLElement[] {
+    const candidates = document.querySelectorAll(
+      "[role='menu'], [role='listbox'], [data-radix-popper-content-wrapper], [data-radix-portal], [data-state='open']",
+    )
+    const roots: Array<{ element: HTMLElement; score: number }> = []
+    const seen = new Set<HTMLElement>()
+
+    for (const candidate of Array.from(candidates)) {
+      if (!(candidate instanceof HTMLElement)) continue
+      if (seen.has(candidate)) continue
+      if (!this.isVisibleElement(candidate)) continue
+      if (this.isElementInsideOphel(candidate)) continue
+
+      const score =
+        (candidate.getAttribute("role") === "menu" ? 80 : 0) +
+        (candidate.getAttribute("role") === "listbox" ? 60 : 0) +
+        this.getOverlayProximityScore(candidate, anchor)
+
+      roots.push({ element: candidate, score })
+      seen.add(candidate)
+    }
+
+    roots.sort((left, right) => right.score - left.score)
+    return roots.map(({ element }) => element)
+  }
+
+  private collectVisibleModelMenuItems(anchor: HTMLElement | null = null): HTMLElement[] {
+    const menus = this.findPerplexityModelMenuRoots(anchor)
+    const items: HTMLElement[] = []
+    const seen = new Set<HTMLElement>()
+
+    const addCandidate = (candidate: HTMLElement) => {
+      if (!this.isVisibleElement(candidate)) return
+      if (seen.has(candidate)) return
+      if (this.isElementInsideOphel(candidate)) return
+      if (!this.looksLikePerplexityModelMenuItem(candidate, anchor)) return
+      seen.add(candidate)
+      items.push(candidate)
+    }
+
+    const pushCandidates = (root: ParentNode, selector?: string) => {
+      const candidates = root.querySelectorAll(
+        selector ||
+          "button, [role='button'], [role='menuitemradio'], [role='menuitemcheckbox'], [role='menuitem'], [role='option'], [data-radix-collection-item], [tabindex]",
+      )
+      for (const candidate of Array.from(candidates)) {
+        if (!(candidate instanceof HTMLElement)) continue
+        addCandidate(candidate)
+      }
+    }
+
+    for (const menu of menus) {
+      pushCandidates(menu)
+    }
+
+    if (items.length === 0) {
+      // Some Perplexity builds render the floating panel as a generic fixed overlay
+      // while only the individual rows expose role="menuitemradio".
+      pushCandidates(
+        document.body,
+        "[role='menuitemradio'], [role='menuitemcheckbox'], [role='menuitem'], [role='option'], [data-radix-collection-item], [aria-checked]",
+      )
+    }
+
+    if (items.length === 0) {
+      // Last-resort fallback aligned to the observed Perplexity structure:
+      // visible radio items inside the floating model menu.
+      const directItems = document.querySelectorAll(
+        "[role='menuitemradio'], [role='menuitemcheckbox'], [role='option']",
+      )
+      for (const candidate of Array.from(directItems)) {
+        if (!(candidate instanceof HTMLElement)) continue
+        addCandidate(candidate)
+      }
+    }
+
+    return items.sort(
+      (left, right) =>
+        this.scorePerplexityModelMenuItem(right, anchor) -
+        this.scorePerplexityModelMenuItem(left, anchor),
+    )
+  }
+
+  private collectDirectVisibleModelMenuItems(anchor: HTMLElement | null = null): HTMLElement[] {
+    const items = Array.from(
+      document.querySelectorAll(
+        "[role='menuitemradio'], [role='menuitemcheckbox'], [role='option']",
+      ),
+    ).filter((item): item is HTMLElement => item instanceof HTMLElement)
+
+    return items
+      .filter((item) => this.isVisibleElement(item))
+      .filter((item) => !this.isElementInsideOphel(item))
+      .filter((item) => this.looksLikePerplexityModelMenuItem(item, anchor))
+      .sort(
+        (left, right) =>
+          this.scorePerplexityModelMenuItem(right, anchor) -
+          this.scorePerplexityModelMenuItem(left, anchor),
+      )
+  }
+
+  private findPerplexityModelSelectorButtonStrict(): HTMLElement | null {
+    const editor = this.getTextareaElement()
+    const editorRect = editor?.getBoundingClientRect() || null
+    const scopes = [
+      editor?.closest("form"),
+      editor?.parentElement,
+      editor?.closest("main"),
+      document.querySelector("main"),
+      document.body,
+    ].filter(Boolean) as ParentNode[]
+
+    let best: { element: HTMLElement; score: number } | null = null
+    const seen = new Set<HTMLElement>()
+
+    for (const scope of scopes) {
+      const candidates = scope.querySelectorAll(
+        'button[aria-haspopup="menu"], [role="button"][aria-haspopup="menu"], [role="combobox"]',
+      )
+      for (const candidate of Array.from(candidates)) {
+        if (!(candidate instanceof HTMLElement)) continue
+        if (seen.has(candidate)) continue
+        seen.add(candidate)
+        if (
+          candidate.closest(
+            "[role='menu'], [role='listbox'], [data-radix-popper-content-wrapper], [data-radix-portal]",
+          )
+        ) {
+          continue
+        }
+        if (this.isElementInsideOphel(candidate)) continue
+        if (!this.isVisibleElement(candidate) || this.isDisabledActionButton(candidate)) continue
+        if (candidate.matches(SUBMIT_BUTTON_SELECTOR) || candidate.matches(STOP_BUTTON_SELECTOR))
+          continue
+
+        const signal = this.getUiSignalText(candidate)
+        if (MODEL_SELECTOR_EXCLUDE_PATTERNS.some((pattern) => pattern.test(signal))) {
+          continue
+        }
+
+        const rect = candidate.getBoundingClientRect()
+        let score = this.scorePerplexityModelSelectorCandidate(candidate, editor) + 200
+
+        if (editor && candidate.closest("form") === editor.closest("form")) score += 500
+        if (editorRect) {
+          const distanceY = Math.abs(rect.top - editorRect.top)
+          const distanceX = Math.abs(rect.right - editorRect.right)
+          score -= distanceY * 0.8
+          score -= distanceX * 0.2
+          if (rect.top < editorRect.top - 200) score -= 400
+          if (rect.bottom > editorRect.bottom + 160) score -= 150
+          if (rect.left >= editorRect.left - 120 && rect.right <= editorRect.right + 80)
+            score += 120
+        }
+
+        if (signal.includes("模型")) score += 80
+        if (
+          MODEL_SELECTOR_PRIMARY_HINTS.some((hint) => signal.includes(this.normalizeUiText(hint)))
+        ) {
+          score += 180
+        }
+
+        if (!best || score > best.score) {
+          best = { element: candidate, score }
+        }
+      }
+    }
+
+    return best?.element || null
+  }
+
+  private collectPerplexityOpenModelMenuItemsStrict(anchor: HTMLElement | null): HTMLElement[] {
+    const roots = Array.from(
+      document.querySelectorAll(
+        "[role='menu'][data-state='open'], [role='menu'], [data-radix-portal] [role='menu']",
+      ),
+    ).filter(
+      (root): root is HTMLElement =>
+        root instanceof HTMLElement &&
+        this.isVisibleElement(root) &&
+        !this.isElementInsideOphel(root),
+    )
+
+    const items: HTMLElement[] = []
+    const seen = new Set<HTMLElement>()
+
+    for (const root of roots) {
+      const candidates = root.querySelectorAll("[role='menuitemradio'], [role='menuitemcheckbox']")
+      for (const candidate of Array.from(candidates)) {
+        if (!(candidate instanceof HTMLElement)) continue
+        if (!this.isVisibleElement(candidate)) continue
+        if (this.isElementInsideOphel(candidate)) continue
+        if (seen.has(candidate)) continue
+        seen.add(candidate)
+        items.push(candidate)
+      }
+    }
+
+    if (items.length === 0) {
+      return this.collectDirectVisibleModelMenuItems(anchor)
+    }
+
+    return items.sort(
+      (left, right) =>
+        this.scorePerplexityModelMenuItem(right, anchor) -
+        this.scorePerplexityModelMenuItem(left, anchor),
+    )
+  }
+
+  private findPerplexityModelMenuItemStrict(
+    menuItems: HTMLElement[],
+    target: string,
+  ): HTMLElement | null {
+    const normalizedTarget = this.normalizeUiText(target)
+    const normalizedItems = menuItems.map((item) => {
+      const text = this.normalizeUiText(item.textContent || "")
+      return { item, text }
+    })
+
+    const exact = normalizedItems.find(({ text }) => text === normalizedTarget)
+    if (exact) return exact.item
+
+    const startsWith = normalizedItems.find(({ text }) => text.startsWith(normalizedTarget))
+    if (startsWith) return startsWith.item
+
+    const includes = normalizedItems.find(({ text }) => text.includes(normalizedTarget))
+    if (includes) return includes.item
+
+    return null
+  }
+
+  private findBestPerplexityModelMenuItem(
+    menuItems: HTMLElement[],
+    target: string,
+  ): HTMLElement | null {
+    const normalizedTarget = this.normalizeUiText(target)
+    const normalizedItems = menuItems.map((item) => {
+      const text = this.normalizeUiText(item.textContent || "")
+      const firstLine = text.split("\n")[0]?.trim() || text
+      return { item, text, firstLine }
+    })
+
+    const exact = normalizedItems.find(
+      ({ text, firstLine }) => firstLine === normalizedTarget || text === normalizedTarget,
+    )
+    if (exact) return exact.item
+
+    const suffix = normalizedItems.find(({ firstLine }) => firstLine.endsWith(normalizedTarget))
+    if (suffix) return suffix.item
+
+    const startsWith = normalizedItems.find(({ firstLine }) =>
+      firstLine.startsWith(normalizedTarget),
+    )
+    if (startsWith) return startsWith.item
+
+    const fuzzy = normalizedItems.find(({ text }) => text.includes(normalizedTarget))
+    return fuzzy?.item || null
+  }
+
   private async openThreadActionMenu({
     preferredContainer,
     triggerScope,
+    menuOpenedCheck,
   }: {
     preferredContainer: HTMLElement | null
     triggerScope: ParentNode
+    menuOpenedCheck?: (actionButton: HTMLElement) => boolean
   }): Promise<HTMLElement | null> {
     if (preferredContainer) {
       this.revealConversationActions(preferredContainer)
@@ -1073,7 +1960,10 @@ export class PerplexityAdapter extends SiteAdapter {
     this.simulateClick(actionButton)
 
     const opened = await this.waitForCondition(
-      () => this.findOpenDeleteMenuItem() !== null,
+      () =>
+        menuOpenedCheck?.(actionButton) ||
+        this.isThreadActionMenuOpen(actionButton) ||
+        this.findOpenDeleteMenuItem(actionButton) !== null,
       DELETE_FLOW_TIMEOUT_MS,
     )
     return opened ? actionButton : null
@@ -1093,7 +1983,7 @@ export class PerplexityAdapter extends SiteAdapter {
     preferredContainer: HTMLElement | null,
     triggerScope: ParentNode,
   ): HTMLElement | null {
-    const scopes = [preferredContainer, triggerScope, document.body].filter(Boolean) as ParentNode[]
+    const scopes = [preferredContainer, triggerScope].filter(Boolean) as ParentNode[]
 
     for (const scope of scopes) {
       for (const selector of THREAD_ACTION_BUTTON_SELECTORS) {
@@ -1101,65 +1991,413 @@ export class PerplexityAdapter extends SiteAdapter {
         for (const candidate of Array.from(candidates)) {
           if (!(candidate instanceof HTMLElement)) continue
           if (!this.isVisibleElement(candidate)) continue
-          if (this.matchesUiLabel(candidate, THREAD_ACTION_LABELS)) {
+          if (this.matchesUiLabel(candidate, THREAD_ACTION_SIGNAL_LABELS)) {
             return candidate
           }
         }
       }
     }
 
-    return null
+    return this.findScoredThreadActionButton(
+      preferredContainer,
+      triggerScope,
+      !preferredContainer && triggerScope === document.body,
+    )
   }
 
-  private async confirmDeleteFromOpenMenu(): Promise<boolean> {
+  private async confirmDeleteFromOpenMenu(
+    id: string,
+    expectSessionChange: boolean,
+    anchor: HTMLElement | null = null,
+  ): Promise<{ success: boolean; reason?: string }> {
     const deleteItem = await this.waitForValue(
-      () => this.findOpenDeleteMenuItem(),
+      () => this.findOpenDeleteMenuItem(anchor),
       DELETE_FLOW_TIMEOUT_MS,
     )
-    if (!deleteItem) return false
+    if (!deleteItem) {
+      void this.showPerplexityDebugToast(
+        `[Perplexity Debug] delete menu item not found: ${id}`,
+        "perplexity-delete-menu-item",
+      )
+      return { success: false, reason: "delete_menu_item_not_found" }
+    }
 
     this.simulateClick(deleteItem)
 
-    const confirmButton = await this.waitForValue(
-      () => this.findConfirmationButton(),
-      DELETE_FLOW_TIMEOUT_MS,
-    )
-    if (!confirmButton) return false
+    const confirmButton = await this.waitForValue(() => this.findConfirmationButton(), 1_500)
 
-    this.simulateClick(confirmButton)
+    if (confirmButton) {
+      this.simulateClick(confirmButton)
+    }
 
-    await this.sleep(300)
-    return true
-  }
-
-  private findOpenDeleteMenuItem(): HTMLElement | null {
-    const menus = document.querySelectorAll("[role='menu'], [data-radix-popper-content-wrapper]")
-    for (const menu of Array.from(menus)) {
-      const buttons = menu.querySelectorAll("button, [role='menuitem'], [role='menuitemradio']")
-      for (const button of Array.from(buttons)) {
-        if (!(button instanceof HTMLElement)) continue
-        if (this.matchesUiLabel(button, DELETE_MENU_ITEM_LABELS)) {
-          return button
-        }
+    const deleted = await this.waitForConversationDeletion(id, expectSessionChange)
+    if (!deleted) {
+      void this.showPerplexityDebugToast(
+        `[Perplexity Debug] delete was not observed on site: ${id}${confirmButton ? "" : " | confirm button not found"}`,
+        "perplexity-delete-not-observed",
+      )
+      return {
+        success: false,
+        reason: confirmButton
+          ? "deletion_not_observed"
+          : "confirm_button_not_found_or_delete_not_observed",
       }
     }
 
-    return null
+    return { success: true }
+  }
+
+  private findOpenDeleteMenuItem(anchor: HTMLElement | null = null): HTMLElement | null {
+    const candidates = document.querySelectorAll(
+      "button, [role='button'], [role='menuitem'], [role='menuitemradio'], [role='option'], [data-radix-collection-item], [tabindex]",
+    )
+    let best: { element: HTMLElement; score: number } | null = null
+
+    for (const candidate of Array.from(candidates)) {
+      if (!(candidate instanceof HTMLElement)) continue
+      if (!this.isVisibleElement(candidate)) continue
+      if (candidate.closest(".gh-root")) continue
+
+      const signal = this.getUiSignalText(candidate)
+      const classSignal = this.normalizeUiText(candidate.className || "")
+      const matchesDelete =
+        this.matchesUiLabel(candidate, DELETE_MENU_ITEM_LABELS) ||
+        /(danger|destructive|theme-error)/.test(classSignal)
+
+      if (!matchesDelete) continue
+
+      let score = 0
+      if (this.matchesUiLabel(candidate, DELETE_MENU_ITEM_LABELS)) score += 120
+      if (/(danger|destructive|theme-error)/.test(classSignal)) score += 60
+      if (candidate.getAttribute("role")?.includes("menuitem")) score += 50
+      if (candidate.hasAttribute("data-radix-collection-item")) score += 25
+      if (anchor) score += this.getOverlayProximityScore(candidate, anchor)
+      if (/rename|重命名/.test(signal)) score = Number.NEGATIVE_INFINITY
+      if (!Number.isFinite(score)) continue
+
+      if (!best || score > best.score) {
+        best = { element: candidate, score }
+      }
+    }
+
+    return best?.element || null
+  }
+
+  private findOpenRenameMenuItem(anchor: HTMLElement | null = null): HTMLElement | null {
+    const candidates = document.querySelectorAll(
+      "button, [role='button'], [role='menuitem'], [role='menuitemradio'], [role='option'], [data-radix-collection-item], [tabindex]",
+    )
+    let best: { element: HTMLElement; score: number } | null = null
+
+    for (const candidate of Array.from(candidates)) {
+      if (!(candidate instanceof HTMLElement)) continue
+      if (!this.isVisibleElement(candidate)) continue
+      if (candidate.closest(".gh-root")) continue
+      if (!this.matchesUiLabel(candidate, RENAME_MENU_ITEM_LABELS)) continue
+
+      let score = 0
+      if (candidate.getAttribute("role")?.includes("menuitem")) score += 80
+      if (candidate.hasAttribute("data-radix-collection-item")) score += 30
+      if (anchor) score += this.getOverlayProximityScore(candidate, anchor)
+
+      if (!best || score > best.score) {
+        best = { element: candidate, score }
+      }
+    }
+
+    return best?.element || null
   }
 
   private findConfirmationButton(): HTMLElement | null {
     const dialogs = document.querySelectorAll("[role='dialog'], [data-radix-portal]")
+    let best: { element: HTMLElement; score: number } | null = null
     for (const dialog of Array.from(dialogs)) {
       const buttons = dialog.querySelectorAll("button, [role='button']")
       for (const button of Array.from(buttons)) {
         if (!(button instanceof HTMLElement)) continue
+        if (!this.isVisibleElement(button)) continue
+        if (this.matchesUiLabel(button, CANCEL_BUTTON_LABELS)) continue
         if (this.matchesUiLabel(button, CONFIRM_BUTTON_LABELS)) {
-          return button
+          const score =
+            (/(danger|destructive|theme-error)/.test(this.normalizeUiText(button.className || ""))
+              ? 60
+              : 0) + (button.closest("[role='dialog']") ? 30 : 0)
+          if (!best || score > best.score) {
+            best = { element: button, score }
+          }
         }
       }
     }
 
+    if (best) return best.element
+
+    const fallbackButtons = document.querySelectorAll("button, [role='button']")
+    for (const button of Array.from(fallbackButtons)) {
+      if (!(button instanceof HTMLElement)) continue
+      if (!this.isVisibleElement(button)) continue
+      if (button.closest(".gh-root")) continue
+      if (this.matchesUiLabel(button, CANCEL_BUTTON_LABELS)) continue
+      if (this.matchesUiLabel(button, CONFIRM_BUTTON_LABELS)) {
+        return button
+      }
+    }
+
     return null
+  }
+
+  private findRenameDialog(): HTMLElement | null {
+    const candidates = document.querySelectorAll(
+      "[role='dialog'], [data-radix-portal], .fixed.inset-0, .fixed.inset-x-0, .fixed",
+    )
+    let best: { element: HTMLElement; score: number } | null = null
+
+    for (const candidate of Array.from(candidates)) {
+      if (!(candidate instanceof HTMLElement)) continue
+      if (!this.isVisibleElement(candidate)) continue
+      if (candidate.closest(".gh-root")) continue
+
+      const signal = this.getUiSignalText(candidate)
+      const hasTitleHint = RENAME_DIALOG_TITLE_LABELS.some((label) =>
+        signal.includes(this.normalizeUiText(label)),
+      )
+      const hasSaveButton = this.findRenameSaveButton(candidate) !== null
+      const hasEditor = this.findRenameDialogEditor(candidate) !== null
+      if (!hasEditor || (!hasTitleHint && !hasSaveButton)) continue
+
+      let score = 0
+      if (hasTitleHint) score += 100
+      if (hasSaveButton) score += 60
+      if (hasEditor) score += 60
+
+      if (!best || score > best.score) {
+        best = { element: candidate, score }
+      }
+    }
+
+    return best?.element || null
+  }
+
+  private findRenameDialogEditor(dialog: ParentNode): HTMLElement | null {
+    const candidates = dialog.querySelectorAll(
+      "textarea, input[type='text'], [contenteditable='true'][role='textbox'], [contenteditable='true']",
+    )
+
+    for (const candidate of Array.from(candidates)) {
+      if (!(candidate instanceof HTMLElement)) continue
+      if (!this.isVisibleElement(candidate)) continue
+      if (candidate.matches("#ask-input")) continue
+      return candidate
+    }
+
+    return null
+  }
+
+  private findRenameSaveButton(dialog: ParentNode): HTMLElement | null {
+    const buttons = dialog.querySelectorAll("button, [role='button']")
+    for (const button of Array.from(buttons)) {
+      if (!(button instanceof HTMLElement)) continue
+      if (!this.isVisibleElement(button)) continue
+      if (this.matchesUiLabel(button, SAVE_BUTTON_LABELS)) {
+        return button
+      }
+    }
+
+    return null
+  }
+
+  private setRenameDialogValue(editor: HTMLElement, value: string): void {
+    editor.focus()
+
+    if (editor instanceof HTMLTextAreaElement || editor instanceof HTMLInputElement) {
+      this.setTextEntryValue(editor, value)
+      editor.dispatchEvent(new InputEvent("input", { bubbles: true, composed: true, data: value }))
+      editor.dispatchEvent(new Event("change", { bubbles: true }))
+      if (editor instanceof HTMLTextAreaElement) {
+        editor.setSelectionRange(value.length, value.length)
+      }
+      return
+    }
+
+    this.selectEditorContents(editor)
+    try {
+      document.execCommand("delete", false)
+    } catch {
+      // ignore
+    }
+
+    if (this.dispatchPasteEvent(editor, value)) {
+      this.placeCaretAtEnd(editor)
+      return
+    }
+
+    editor.textContent = value
+    this.dispatchEditorInputEvents(editor, value, "insertText")
+    this.placeCaretAtEnd(editor)
+  }
+
+  private findVisibleDialog(): HTMLElement | null {
+    const dialogs = document.querySelectorAll("[role='dialog'], [data-radix-portal]")
+    for (const dialog of Array.from(dialogs)) {
+      if (dialog instanceof HTMLElement && this.isVisibleElement(dialog)) {
+        return dialog
+      }
+    }
+
+    return null
+  }
+
+  private async waitForConversationDeletion(
+    id: string,
+    expectSessionChange: boolean,
+  ): Promise<boolean> {
+    const start = Date.now()
+    let apiChecked = false
+
+    while (Date.now() - start < DELETE_FLOW_TIMEOUT_MS) {
+      if (this.isConversationDeletionSettled(id, expectSessionChange)) {
+        return true
+      }
+
+      if (!apiChecked && Date.now() - start >= 1_000) {
+        apiChecked = true
+        if (await this.verifyConversationMissingViaApi(id)) {
+          return true
+        }
+      }
+
+      await this.sleep(120)
+    }
+
+    return this.verifyConversationMissingViaApi(id)
+  }
+
+  private isConversationDeletionSettled(id: string, expectSessionChange: boolean): boolean {
+    const sessionChanged = !expectSessionChange || this.getSessionId() !== id
+    const sidebarLink = this.findSidebarConversationLink(id)
+    const sidebarRemoved = !sidebarLink || !sidebarLink.isConnected
+    const dialogClosed = this.findVisibleDialog() === null
+
+    return sessionChanged && dialogClosed && sidebarRemoved
+  }
+
+  private async verifyConversationMissingViaApi(id: string): Promise<boolean> {
+    try {
+      const conversations = await this.fetchThreadsViaApi()
+      return !conversations.some((item) => item.id === id)
+    } catch {
+      return false
+    }
+  }
+
+  private findScoredThreadActionButton(
+    preferredContainer: HTMLElement | null,
+    triggerScope: ParentNode,
+    includeBodyFallback = false,
+  ): HTMLElement | null {
+    const scopes = [preferredContainer, triggerScope]
+      .concat(includeBodyFallback ? [document.body] : [])
+      .filter(Boolean) as ParentNode[]
+    let best: { element: HTMLElement; score: number } | null = null
+
+    for (const scope of scopes) {
+      const candidates = scope.querySelectorAll(
+        'button, [role="button"], [aria-haspopup="menu"], [aria-haspopup="dialog"], [aria-haspopup="listbox"]',
+      )
+      for (const candidate of Array.from(candidates)) {
+        if (!(candidate instanceof HTMLElement)) continue
+        const score = this.scoreThreadActionButtonCandidate(candidate, preferredContainer)
+        if (!Number.isFinite(score)) continue
+        if (!best || score > best.score) {
+          best = { element: candidate, score }
+        }
+      }
+    }
+
+    return best?.element || null
+  }
+
+  private isPerplexityModelMenuOpen(selectorBtn: HTMLElement | null): boolean {
+    if (!selectorBtn) return false
+
+    const expanded = (selectorBtn.getAttribute("aria-expanded") || "").toLowerCase()
+    const state = (selectorBtn.getAttribute("data-state") || "").toLowerCase()
+    if (expanded === "true" || state === "open") {
+      return true
+    }
+
+    return this.collectVisibleModelMenuItems(selectorBtn).length > 0
+  }
+
+  private isThreadActionMenuOpen(actionButton: HTMLElement | null): boolean {
+    if (!actionButton) return false
+
+    const expanded = (actionButton.getAttribute("aria-expanded") || "").toLowerCase()
+    const state = (actionButton.getAttribute("data-state") || "").toLowerCase()
+    if (expanded === "true" || state === "open") {
+      return true
+    }
+
+    return this.findOpenDeleteMenuItem(actionButton) !== null
+  }
+
+  private getOverlayProximityScore(candidate: HTMLElement, anchor: HTMLElement | null): number {
+    if (!anchor) return 0
+
+    const candidateRect = candidate.getBoundingClientRect()
+    const anchorRect = anchor.getBoundingClientRect()
+    const candidateCenterX = candidateRect.left + candidateRect.width / 2
+    const candidateCenterY = candidateRect.top + candidateRect.height / 2
+    const anchorCenterX = anchorRect.left + anchorRect.width / 2
+    const anchorCenterY = anchorRect.top + anchorRect.height / 2
+    const distanceX = Math.abs(candidateCenterX - anchorCenterX)
+    const distanceY = Math.abs(candidateCenterY - anchorCenterY)
+
+    let score = 0
+    score -= distanceX * 0.2
+    score -= distanceY * 0.12
+    if (candidateRect.bottom <= anchorRect.top + 16) score += 50
+    if (candidateRect.top >= anchorRect.bottom - 16) score += 35
+    if (
+      candidateRect.left >= anchorRect.left - 80 &&
+      candidateRect.right <= anchorRect.right + 280
+    ) {
+      score += 45
+    }
+
+    return score
+  }
+
+  private scoreThreadActionButtonCandidate(
+    candidate: HTMLElement,
+    preferredContainer: HTMLElement | null,
+  ): number {
+    if (!this.isVisibleElement(candidate) || this.isDisabledActionButton(candidate)) {
+      return Number.NEGATIVE_INFINITY
+    }
+    if (this.isElementInsideOphel(candidate)) return Number.NEGATIVE_INFINITY
+    if (candidate.matches("input, textarea, label")) return Number.NEGATIVE_INFINITY
+    if (candidate.matches(SUBMIT_BUTTON_SELECTOR) || candidate.matches(STOP_BUTTON_SELECTOR)) {
+      return Number.NEGATIVE_INFINITY
+    }
+
+    const signal = this.getUiSignalText(candidate)
+    let score = 0
+
+    if (candidate.getAttribute("aria-haspopup")) score += 120
+    if (THREAD_ACTION_SIGNAL_LABELS.some((label) => signal.includes(this.normalizeUiText(label)))) {
+      score += 100
+    }
+    if (/(ellipsis|menu|more|更多|菜单|\.{3}|…)/.test(signal)) score += 80
+    if (preferredContainer && candidate.closest("li") === preferredContainer.closest("li"))
+      score += 40
+    if (preferredContainer && candidate.closest(".h-headerHeight.fixed.z-10")) score += 25
+    if (candidate.matches("button, [role='button']")) score += 10
+
+    const rect = candidate.getBoundingClientRect()
+    score += Math.max(0, rect.right) * 0.05
+    score -= Math.max(0, rect.top) * 0.02
+
+    return score
   }
 
   private findUserContentRoot(element: Element): HTMLElement | null {
@@ -1781,13 +3019,7 @@ export class PerplexityAdapter extends SiteAdapter {
   }
 
   private matchesUiLabel(element: HTMLElement, labels: string[]): boolean {
-    const text = this.normalizeUiText(
-      [
-        element.textContent || "",
-        element.getAttribute("aria-label") || "",
-        element.getAttribute("title") || "",
-      ].join(" "),
-    )
+    const text = this.getUiSignalText(element)
 
     return labels.some((label) => {
       const normalized = this.normalizeUiText(label)
@@ -1797,6 +3029,366 @@ export class PerplexityAdapter extends SiteAdapter {
 
   private normalizeUiText(value: string): string {
     return value.replace(/\s+/g, " ").trim().toLowerCase()
+  }
+
+  protected simulateClick(element: HTMLElement): void {
+    const rect = element.getBoundingClientRect()
+    const clientX = rect.left + Math.max(1, Math.min(rect.width / 2, Math.max(1, rect.width - 1)))
+    const clientY = rect.top + Math.max(1, Math.min(rect.height / 2, Math.max(1, rect.height - 1)))
+    const mouseInit: MouseEventInit = {
+      bubbles: true,
+      cancelable: true,
+      composed: true,
+      view: window,
+      button: 0,
+      buttons: 1,
+      clientX,
+      clientY,
+    }
+    const pointerInit: PointerEventInit = {
+      ...mouseInit,
+      pointerId: 1,
+      pointerType: "mouse",
+      isPrimary: true,
+    }
+
+    element.focus?.()
+    element.dispatchEvent(new PointerEvent("pointerenter", pointerInit))
+    element.dispatchEvent(new PointerEvent("pointerover", pointerInit))
+    element.dispatchEvent(new MouseEvent("mouseenter", mouseInit))
+    element.dispatchEvent(new MouseEvent("mouseover", mouseInit))
+    element.dispatchEvent(new PointerEvent("pointerdown", pointerInit))
+    element.dispatchEvent(new MouseEvent("mousedown", mouseInit))
+    element.dispatchEvent(new PointerEvent("pointerup", pointerInit))
+    element.dispatchEvent(new MouseEvent("mouseup", mouseInit))
+    element.dispatchEvent(new MouseEvent("click", mouseInit))
+  }
+
+  private getUiSignalText(element: HTMLElement): string {
+    return this.normalizeUiText(
+      [
+        element.textContent || "",
+        element.getAttribute("aria-label") || "",
+        element.getAttribute("title") || "",
+        element.getAttribute("data-testid") || "",
+        element.getAttribute("data-test-id") || "",
+        element.id || "",
+        element.className || "",
+      ].join(" "),
+    )
+  }
+
+  private looksLikePerplexityModelSelector(element: HTMLElement): boolean {
+    const signal = this.getUiSignalText(element)
+
+    if (!signal) return false
+    if (this.matchesUiLabel(element, THREAD_ACTION_SIGNAL_LABELS)) return false
+    if (/(share|分享|attach|附件|upload|上传|search|搜索|submit|send)/.test(signal)) return false
+
+    if (
+      MODEL_SELECTOR_PRIMARY_HINTS.some((keyword) => signal.includes(this.normalizeUiText(keyword)))
+    ) {
+      return true
+    }
+
+    if (signal.includes("模型")) {
+      return true
+    }
+
+    const hasPopup = ["menu", "listbox", "dialog"].includes(
+      (element.getAttribute("aria-haspopup") || "").toLowerCase(),
+    )
+    return hasPopup && signal.length <= 32
+  }
+
+  private scorePerplexityModelSelectorCandidate(
+    element: HTMLElement,
+    editor: HTMLElement | null,
+  ): number {
+    let score = 0
+    const signal = this.getUiSignalText(element)
+
+    const hasPrimaryHint = MODEL_SELECTOR_PRIMARY_HINTS.some((keyword) =>
+      signal.includes(this.normalizeUiText(keyword)),
+    )
+    const isGenericModelLabel =
+      signal === "模型" || signal.endsWith(" 模型") || signal.includes("aria-label 模型")
+
+    if (hasPrimaryHint) score += 220
+    else if (signal.includes("模型")) score += 60
+    if (element.getAttribute("aria-haspopup")) score += 50
+    if (editor && element.closest("form") === editor.closest("form")) score += 60
+    if (isGenericModelLabel) score -= 40
+
+    const rect = element.getBoundingClientRect()
+    score += Math.max(0, rect.top)
+    score -= Math.abs(rect.right - window.innerWidth) * 0.15
+
+    return score
+  }
+
+  private looksLikePerplexityModelMenuItem(
+    element: HTMLElement,
+    anchor: HTMLElement | null = null,
+  ): boolean {
+    const signal = this.getUiSignalText(element)
+    if (!signal) return false
+    if (this.matchesUiLabel(element, CANCEL_BUTTON_LABELS)) return false
+    if (anchor && (element === anchor || anchor.contains(element) || element.contains(anchor))) {
+      return false
+    }
+
+    const hasModelHint = MODEL_MENU_HINTS.some((keyword) =>
+      signal.includes(this.normalizeUiText(keyword)),
+    )
+    if (!hasModelHint) return false
+
+    if (element.getAttribute("role")?.includes("menuitem")) return true
+    if (element.getAttribute("role") === "option") return true
+    if (element.hasAttribute("data-radix-collection-item")) return true
+    if (
+      element.closest(
+        "[role='menu'], [role='listbox'], [data-radix-popper-content-wrapper], [data-radix-portal]",
+      )
+    ) {
+      return true
+    }
+
+    return anchor ? this.getOverlayProximityScore(element, anchor) > -120 : true
+  }
+
+  private scorePerplexityModelMenuItem(
+    element: HTMLElement,
+    anchor: HTMLElement | null = null,
+  ): number {
+    const signal = this.getUiSignalText(element)
+    let score = 0
+
+    if (element.getAttribute("role")?.includes("menuitem")) score += 80
+    if (element.getAttribute("role") === "option") score += 60
+    if (element.hasAttribute("data-radix-collection-item")) score += 35
+    if (/gpt|claude|gemini|sonar|nemotron|best|最佳/.test(signal)) score += 100
+    if (/max|pro|sonnet|opus|super|thinking|reasoning/.test(signal)) score += 15
+    score += this.getOverlayProximityScore(element, anchor)
+
+    const rect = element.getBoundingClientRect()
+    score -= Math.max(0, rect.width - 360) * 0.05
+
+    return score
+  }
+
+  private async activatePerplexityModelSelector(button: HTMLElement): Promise<void> {
+    const expandedBefore = (button.getAttribute("aria-expanded") || "").toLowerCase()
+    const stateBefore = (button.getAttribute("data-state") || "").toLowerCase()
+
+    button.click()
+    await this.sleep(120)
+
+    const expandedAfter = (button.getAttribute("aria-expanded") || "").toLowerCase()
+    const stateAfter = (button.getAttribute("data-state") || "").toLowerCase()
+    if (
+      expandedAfter === "true" ||
+      stateAfter === "open" ||
+      expandedAfter !== expandedBefore ||
+      stateAfter !== stateBefore ||
+      this.findPerplexityModelMenuRoots(button).length > 0
+    ) {
+      return
+    }
+
+    // Fallback for builds that rely on pointer events rather than click.
+    this.simulateClick(button)
+  }
+
+  private activatePerplexityModelMenuItem(item: HTMLElement): void {
+    item.click()
+    const checkedAfterClick = (item.getAttribute("aria-checked") || "").toLowerCase()
+    if (checkedAfterClick === "true") {
+      return
+    }
+
+    this.simulateClick(item)
+  }
+
+  private async togglePerplexityModelSelector(button: HTMLElement): Promise<void> {
+    const expandedBefore = (button.getAttribute("aria-expanded") || "").toLowerCase()
+    const stateBefore = (button.getAttribute("data-state") || "").toLowerCase()
+    const wasOpen =
+      expandedBefore === "true" ||
+      stateBefore === "open" ||
+      this.findPerplexityModelMenuRoots(button).length > 0
+
+    button.click()
+    await this.sleep(110)
+
+    const expandedAfter = (button.getAttribute("aria-expanded") || "").toLowerCase()
+    const stateAfter = (button.getAttribute("data-state") || "").toLowerCase()
+    const isOpenNow =
+      expandedAfter === "true" ||
+      stateAfter === "open" ||
+      this.findPerplexityModelMenuRoots(button).length > 0
+
+    if (wasOpen !== isOpenNow) {
+      return
+    }
+
+    this.simulateClick(button)
+  }
+
+  private openPerplexityModelSelector(): boolean {
+    const button = this.findPerplexityModelSelectorButton()
+    if (!button) return false
+    if (this.isModelSelectorOpen()) return true
+    void this.activatePerplexityModelSelector(button)
+    return true
+  }
+
+  private async closePerplexityModelSelector(button: HTMLElement | null): Promise<void> {
+    if (!button) return
+
+    const isOpen = () => {
+      const expanded = (button.getAttribute("aria-expanded") || "").toLowerCase()
+      const state = (button.getAttribute("data-state") || "").toLowerCase()
+      return (
+        expanded === "true" ||
+        state === "open" ||
+        this.findPerplexityModelMenuRoots(button).length > 0
+      )
+    }
+
+    if (!isOpen()) return
+
+    document.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        key: "Escape",
+        code: "Escape",
+        bubbles: true,
+        cancelable: true,
+      }),
+    )
+    await this.sleep(80)
+    if (!isOpen()) return
+
+    document.body.click()
+    await this.sleep(80)
+    if (!isOpen()) return
+
+    button.click()
+  }
+
+  private getCheckedModelItemTexts(): string[] {
+    const checkedItems = document.querySelectorAll(
+      "[role='menuitemradio'][aria-checked='true'], [role='option'][aria-selected='true'], [role='menuitemcheckbox'][aria-checked='true']",
+    )
+
+    return Array.from(checkedItems)
+      .filter(
+        (item): item is HTMLElement => item instanceof HTMLElement && this.isVisibleElement(item),
+      )
+      .map((item) => this.normalizeUiText(item.textContent || ""))
+      .filter(Boolean)
+  }
+
+  private doesCurrentModelMatchTarget(target: string): boolean {
+    const normalizedTarget = this.normalizeUiText(target)
+    const editor = this.getTextareaElement()
+    const scopes = [
+      editor?.closest("form"),
+      editor?.parentElement,
+      editor?.closest("main"),
+      document.querySelector("main"),
+    ].filter(Boolean) as ParentNode[]
+
+    for (const scope of scopes) {
+      const candidates = scope.querySelectorAll(
+        "button[aria-haspopup='menu'], [role='button'][aria-haspopup='menu'], [role='combobox']",
+      )
+      for (const candidate of Array.from(candidates)) {
+        if (!(candidate instanceof HTMLElement)) continue
+        if (!this.isVisibleElement(candidate) || this.isElementInsideOphel(candidate)) continue
+        const signal = this.getUiSignalText(candidate)
+        if (
+          !MODEL_SELECTOR_PRIMARY_HINTS.some((hint) => signal.includes(this.normalizeUiText(hint)))
+        ) {
+          continue
+        }
+        if (signal.includes(normalizedTarget)) {
+          return true
+        }
+      }
+    }
+
+    return false
+  }
+
+  private getCurrentPerplexityModelText(): string {
+    const looseButton = this.findPerplexityModelSelectorButton()
+    if (looseButton) {
+      return this.normalizeUiText(super.getModelLockCheckText(looseButton))
+    }
+
+    const strictButton = this.findPerplexityModelSelectorButtonStrict()
+    if (strictButton) {
+      return this.normalizeUiText(
+        strictButton.textContent || strictButton.getAttribute("aria-label") || "",
+      )
+    }
+
+    return ""
+  }
+
+  private getDebugRect(element: HTMLElement): { x: number; y: number; w: number; h: number } {
+    const rect = element.getBoundingClientRect()
+    return {
+      x: Math.round(rect.x),
+      y: Math.round(rect.y),
+      w: Math.round(rect.width),
+      h: Math.round(rect.height),
+    }
+  }
+
+  private logPerplexityModelLockDebug(stage: string, payload: Record<string, unknown>): void {
+    if (!this.isPerplexityLockDebugEnabled()) return
+    try {
+      console.info("[Perplexity Lock Debug]", stage, payload)
+    } catch {
+      // ignore debug log failures
+    }
+  }
+
+  private isPerplexityLockDebugEnabled(): boolean {
+    try {
+      return localStorage.getItem("ophel:perplexity-lock-debug") === "1"
+    } catch {
+      return false
+    }
+  }
+
+  private isTargetModelChecked(target: string): boolean {
+    const normalizedTarget = this.normalizeUiText(target)
+    const checkedItems = document.querySelectorAll(
+      "[role='menuitemradio'][aria-checked='true'], [role='option'][aria-selected='true'], [role='menuitemcheckbox'][aria-checked='true']",
+    )
+
+    for (const item of Array.from(checkedItems)) {
+      if (!(item instanceof HTMLElement)) continue
+      if (!this.isVisibleElement(item)) continue
+      const text = this.normalizeUiText(item.textContent || "")
+      if (text.includes(normalizedTarget)) {
+        return true
+      }
+    }
+
+    return false
+  }
+
+  private async showPerplexityDebugToast(message: string, key: string): Promise<void> {
+    try {
+      const { showToastThrottled } = await import("~utils/toast")
+      showToastThrottled(message, 3000, { maxWidth: 520 }, 1800, key)
+    } catch {
+      // ignore debug toast failures
+    }
   }
 
   private async waitForValue<T>(getter: () => T | null, timeoutMs: number): Promise<T | null> {
