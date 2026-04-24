@@ -507,6 +507,7 @@ export class PerplexityAdapter extends SiteAdapter {
   ): Promise<SiteDeleteConversationResult[]> {
     const results: SiteDeleteConversationResult[] = []
     const deletedSlugs = new Set<string>()
+    let deletedViaApi = false
 
     for (const target of targets) {
       const slug =
@@ -518,10 +519,13 @@ export class PerplexityAdapter extends SiteAdapter {
 
       if (result.success && slug) {
         deletedSlugs.add(slug)
+        if (result.method === "api") {
+          deletedViaApi = true
+        }
       }
     }
 
-    this.navigateAwayIfCurrentThreadWasDeleted(deletedSlugs)
+    this.refreshPageAfterNativeApiDelete(deletedSlugs, deletedViaApi)
     return results
   }
 
@@ -1634,15 +1638,18 @@ export class PerplexityAdapter extends SiteAdapter {
     })
   }
 
-  private navigateAwayIfCurrentThreadWasDeleted(deletedSlugs: Set<string>): void {
-    if (deletedSlugs.size === 0) return
+  private refreshPageAfterNativeApiDelete(deletedSlugs: Set<string>, deletedViaApi: boolean): void {
+    if (deletedSlugs.size === 0 || !deletedViaApi) return
 
     window.setTimeout(() => {
       const currentSlug = this.getSessionId()
-      if (!currentSlug || !deletedSlugs.has(currentSlug)) return
+      if (currentSlug && deletedSlugs.has(currentSlug)) {
+        window.location.assign(buildPerplexityUrl("/"))
+        return
+      }
 
-      window.location.assign(buildPerplexityUrl("/"))
-    }, 150)
+      window.location.reload()
+    }, 250)
   }
 
   private syncConversationListAfterRename(id: string, title: string): void {

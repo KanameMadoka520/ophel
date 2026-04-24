@@ -543,35 +543,65 @@ export class ConversationManager {
   }
 
   private startSidebarMutationSync(container: Node) {
+    if (this.siteAdapter.getSiteId() !== SITE_IDS.PERPLEXITY) return
     if (this.sidebarMutationSyncStop) return
     if (!container || typeof MutationObserver === "undefined") return
-    if (
-      container === document ||
-      container === document.body ||
-      container === document.documentElement
-    ) {
-      return
-    }
-
     let syncTimer: ReturnType<typeof setTimeout> | null = null
     const scheduleSync = () => {
-      if (syncTimer) clearTimeout(syncTimer)
+      if (syncTimer) return
       syncTimer = setTimeout(() => {
         syncTimer = null
         const { newCount, updatedCount } = this.syncConversations(null, true)
         if (newCount > 0 || updatedCount > 0) {
           this.notifyDataChange()
         }
-      }, 500)
+        this.scheduleRemoteConversationSnapshotSync(800)
+      }, 800)
     }
 
-    const observer = new MutationObserver(scheduleSync)
-    observer.observe(container, {
-      attributes: true,
-      childList: true,
-      characterData: true,
-      subtree: true,
+    const isConversationListMutation = (mutations: MutationRecord[]): boolean => {
+      const selector = this.observerConfig?.selector
+      if (!selector) return true
+
+      const matchesConversationSelector = (node: Node | null): boolean => {
+        const element =
+          node instanceof Element ? node : node instanceof CharacterData ? node.parentElement : null
+        if (!element) return false
+
+        try {
+          return Boolean(element.closest(selector) || element.querySelector(selector))
+        } catch {
+          return true
+        }
+      }
+
+      return mutations.some((mutation) => {
+        if (matchesConversationSelector(mutation.target)) return true
+        return Array.from(mutation.addedNodes).some(matchesConversationSelector)
+      })
+    }
+
+    const observer = new MutationObserver((mutations) => {
+      if (isConversationListMutation(mutations)) {
+        scheduleSync()
+      }
     })
+    try {
+      observer.observe(container, {
+        attributes: true,
+        childList: true,
+        characterData: true,
+        subtree: true,
+      })
+    } catch {
+      if (!(document.body instanceof Node)) return
+      observer.observe(document.body, {
+        attributes: true,
+        childList: true,
+        characterData: true,
+        subtree: true,
+      })
+    }
 
     this.sidebarMutationSyncStop = () => {
       if (syncTimer) clearTimeout(syncTimer)
