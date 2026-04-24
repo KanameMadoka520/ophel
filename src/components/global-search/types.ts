@@ -1,4 +1,12 @@
-export type GlobalSearchCategoryId = "all" | "outline" | "conversations" | "prompts" | "settings"
+import type { ShortcutActionId } from "~constants/shortcuts"
+
+export type GlobalSearchCategoryId =
+  | "all"
+  | "outline"
+  | "conversations"
+  | "prompts"
+  | "settings"
+  | "tips"
 
 export type GlobalSearchResultCategory = Exclude<GlobalSearchCategoryId, "all">
 
@@ -59,6 +67,14 @@ export interface GlobalSearchResultItem {
   matchReasons?: GlobalSearchMatchReason[]
   fuzzyMatch?: GlobalSearchFuzzyMatchMeta
   outlineTarget?: GlobalSearchOutlineTarget
+  /** 标记这是一个功能技巧条目 */
+  tipId?: string
+  /** 语义目标名称，对应面板内 data-tip-target 属性值 */
+  tipHighlightTarget?: string
+  /** 点击技巧项后优先展示的操作提示文案 */
+  tipActionText?: string
+  /** 该技巧关联的快捷键 ID 列表（对应 DEFAULT_KEYBINDINGS 的 key）*/
+  tipShortcutIds?: ShortcutActionId[]
 }
 
 export interface GlobalSearchGroupedResult {

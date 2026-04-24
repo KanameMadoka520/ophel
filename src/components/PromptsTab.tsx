@@ -11,6 +11,7 @@ import {
   EyeIcon,
   ImportIcon,
   PinIcon,
+  SettingsIcon,
   TimeIcon,
 } from "~components/icons"
 import { Button, ConfirmDialog, InputDialog, Tooltip } from "~components/ui"
@@ -1480,7 +1481,7 @@ export const PromptsTab: React.FC<PromptsTabProps> = ({
       {/* 搜索栏 + 导入导出按钮 */}
       <div
         style={{
-          padding: "12px",
+          padding: "8px 12px",
           borderBottom: "1px solid var(--gh-border, #e5e7eb)",
           background: "var(--gh-bg-secondary, #f9fafb)",
           display: "flex",
@@ -1495,7 +1496,7 @@ export const PromptsTab: React.FC<PromptsTabProps> = ({
           onChange={(e) => setSearchQuery(e.target.value)}
           style={{
             flex: 1,
-            padding: "8px 12px",
+            padding: "6px 10px",
             border: "1px solid var(--gh-border, #d1d5db)",
             borderRadius: "8px",
             fontSize: "14px",
@@ -1546,110 +1547,143 @@ export const PromptsTab: React.FC<PromptsTabProps> = ({
         </Tooltip>
       </div>
 
-      {/* 分类标签栏 */}
+      {/* 分类标签栏：左侧可滚动 + 右侧固定 */}
       <div
         style={{
-          padding: "8px 12px",
           display: "flex",
-          gap: "6px",
-          flexWrap: "wrap",
+          alignItems: "center",
           background: "var(--gh-bg, white)",
           borderBottom: "1px solid var(--gh-border, #e5e7eb)",
-          userSelect: "none", // 禁止文字选中
+          userSelect: "none",
         }}>
-        <span
-          onClick={() => setSelectedCategory(VIRTUAL_CATEGORY.ALL)}
+        {/* 左侧可滚动分类列表 */}
+        <div
+          className="prompt-category-bar"
           style={{
-            padding: "4px 10px",
-            background:
-              selectedCategory === VIRTUAL_CATEGORY.ALL
-                ? "var(--gh-primary, #4285f4)"
-                : "var(--gh-hover, #f3f4f6)",
-            borderRadius: "12px",
-            fontSize: "12px",
-            color: selectedCategory === VIRTUAL_CATEGORY.ALL ? "white" : "#4b5563",
-            cursor: "pointer",
-            border:
-              selectedCategory === VIRTUAL_CATEGORY.ALL
-                ? "1px solid var(--gh-primary, #4285f4)"
-                : "1px solid transparent",
+            flex: 1,
+            minWidth: 0,
+            padding: "6px 0 6px 10px",
+            display: "flex",
+            gap: "5px",
+            flexWrap: "nowrap",
+            overflowX: "auto",
+            scrollbarWidth: "none",
+          }}
+          onWheel={(e) => {
+            // 将竖向滚轮转为横向滚动（Shadow DOM 内 wheel 事件不自动横滚）
+            if (e.deltaY !== 0) {
+              e.currentTarget.scrollLeft += e.deltaY
+            }
           }}>
-          {t("allCategory")}
-        </span>
-
-        {categories.map((cat) => {
-          const colorIndex = getCategoryColorIndex(cat)
-          return (
-            <Tooltip key={cat} content={cat}>
-              <span
-                onClick={() => setSelectedCategory(cat)}
-                style={{
-                  padding: "4px 10px",
-                  background:
-                    selectedCategory === cat
-                      ? "var(--gh-primary, #4285f4)"
-                      : `var(--gh-category-${colorIndex})`,
-                  borderRadius: "12px",
-                  fontSize: "12px",
-                  color: selectedCategory === cat ? "white" : "#4b5563",
-                  cursor: "pointer",
-                  border:
-                    selectedCategory === cat
-                      ? "1px solid var(--gh-primary, #4285f4)"
-                      : "1px solid transparent",
-                  maxWidth: "80px",
-                  overflow: "hidden",
-                  textOverflow: "ellipsis",
-                  whiteSpace: "nowrap",
-                }}>
-                {cat}
-              </span>
-            </Tooltip>
-          )
-        })}
-
-        {/* ⭐ 最近使用（仅图标） */}
-        <Tooltip content={t("promptRecentUsed") || "最近使用"}>
           <span
-            onClick={() => setSelectedCategory(VIRTUAL_CATEGORY.RECENT)}
+            onClick={() => setSelectedCategory(VIRTUAL_CATEGORY.ALL)}
             style={{
-              padding: "4px 8px",
-              display: "inline-flex",
-              alignItems: "center",
-              justifyContent: "center",
-              lineHeight: 1,
+              padding: "4px 10px",
               background:
-                selectedCategory === VIRTUAL_CATEGORY.RECENT
+                selectedCategory === VIRTUAL_CATEGORY.ALL
                   ? "var(--gh-primary, #4285f4)"
                   : "var(--gh-hover, #f3f4f6)",
               borderRadius: "12px",
               fontSize: "12px",
-              color: selectedCategory === VIRTUAL_CATEGORY.RECENT ? "white" : "#4b5563",
+              color: selectedCategory === VIRTUAL_CATEGORY.ALL ? "white" : "#4b5563",
               cursor: "pointer",
+              flexShrink: 0,
               border:
-                selectedCategory === VIRTUAL_CATEGORY.RECENT
+                selectedCategory === VIRTUAL_CATEGORY.ALL
                   ? "1px solid var(--gh-primary, #4285f4)"
                   : "1px solid transparent",
             }}>
-            <TimeIcon size={14} />
+            {t("allCategory")}
           </span>
-        </Tooltip>
 
-        {categories.length > 0 && (
-          <button
-            onClick={() => setIsCategoryModalOpen(true)}
-            style={{
-              padding: "4px 8px",
-              background: "transparent",
-              border: "1px dashed var(--gh-border, #d1d5db)",
-              borderRadius: "12px",
-              fontSize: "11px",
-              color: "var(--gh-text-secondary, #9ca3af)",
-              cursor: "pointer",
-            }}>
-            {t("manageCategory") || "管理"}
-          </button>
-        )}
+          {categories.map((cat) => {
+            const colorIndex = getCategoryColorIndex(cat)
+            return (
+              <Tooltip key={cat} content={cat}>
+                <span
+                  onClick={() => setSelectedCategory(cat)}
+                  style={{
+                    padding: "4px 10px",
+                    background:
+                      selectedCategory === cat
+                        ? "var(--gh-primary, #4285f4)"
+                        : `var(--gh-category-${colorIndex})`,
+                    borderRadius: "12px",
+                    fontSize: "12px",
+                    color: selectedCategory === cat ? "white" : "#4b5563",
+                    cursor: "pointer",
+                    flexShrink: 0,
+                    border:
+                      selectedCategory === cat
+                        ? "1px solid var(--gh-primary, #4285f4)"
+                        : "1px solid transparent",
+                    maxWidth: "80px",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                  }}>
+                  {cat}
+                </span>
+              </Tooltip>
+            )
+          })}
+        </div>
+
+        {/* 右侧固定：最近使用 + 管理（仅图标） */}
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "4px",
+            padding: "6px 8px",
+            flexShrink: 0,
+            borderLeft: "1px solid var(--gh-border, #e5e7eb)",
+          }}>
+          {/* ⭐ 最近使用（仅图标） */}
+          <Tooltip content={t("promptRecentUsed") || "最近使用"}>
+            <span
+              onClick={() => setSelectedCategory(VIRTUAL_CATEGORY.RECENT)}
+              style={{
+                padding: "3px 6px",
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                lineHeight: 1,
+                background:
+                  selectedCategory === VIRTUAL_CATEGORY.RECENT
+                    ? "var(--gh-primary, #4285f4)"
+                    : "var(--gh-hover, #f3f4f6)",
+                borderRadius: "10px",
+                color: selectedCategory === VIRTUAL_CATEGORY.RECENT ? "white" : "#4b5563",
+                cursor: "pointer",
+                border:
+                  selectedCategory === VIRTUAL_CATEGORY.RECENT
+                    ? "1px solid var(--gh-primary, #4285f4)"
+                    : "1px solid transparent",
+              }}>
+              <TimeIcon size={14} />
+            </span>
+          </Tooltip>
+          {categories.length > 0 && (
+            <Tooltip content={t("manageCategory") || "管理"}>
+              <button
+                onClick={() => setIsCategoryModalOpen(true)}
+                style={{
+                  padding: "3px 6px",
+                  background: "transparent",
+                  border: "1px dashed var(--gh-border, #d1d5db)",
+                  borderRadius: "10px",
+                  color: "var(--gh-text-secondary, #9ca3af)",
+                  cursor: "pointer",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}>
+                <SettingsIcon size={13} />
+              </button>
+            </Tooltip>
+          )}
+        </div>
       </div>
 
       {/* 提示词列表 */}
@@ -1750,27 +1784,14 @@ export const PromptsTab: React.FC<PromptsTabProps> = ({
                 {/* 悬浮操作按钮 */}
                 <div
                   className="prompt-item-actions"
-                  style={{ position: "absolute", top: "8px", right: "8px", gap: "4px" }}>
+                  style={{ position: "absolute", top: "8px", right: "8px", gap: "2px" }}>
                   {/* ⭐ 置顶按钮 */}
                   <Tooltip
                     content={p.pinned ? t("promptUnpin") || "取消置顶" : t("promptPin") || "置顶"}>
                     <button
                       onClick={(e) => handleTogglePin(p.id, e)}
-                      style={{
-                        width: "24px",
-                        height: "24px",
-                        border: "1px solid var(--gh-border, #e5e7eb)",
-                        background: p.pinned ? "var(--gh-primary, #4285f4)" : "var(--gh-bg, white)",
-                        borderRadius: "4px",
-                        cursor: "pointer",
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        boxShadow: "var(--gh-shadow-sm, 0 1px 3px rgba(0,0,0,0.1))",
-                        fontSize: "12px",
-                        color: p.pinned ? "white" : "var(--gh-text-secondary, #6b7280)",
-                      }}>
-                      <PinIcon size={12} filled={p.pinned} />
+                      className={`prompt-action-btn${p.pinned ? " active" : ""}`}>
+                      <PinIcon size={16} filled={p.pinned} />
                     </button>
                   </Tooltip>
                   <Tooltip content="拖动排序">
@@ -1784,20 +1805,9 @@ export const PromptsTab: React.FC<PromptsTabProps> = ({
                         const item = e.currentTarget.closest(".prompt-item") as HTMLDivElement
                         if (item) item.draggable = false
                       }}
-                      style={{
-                        width: "24px",
-                        height: "24px",
-                        border: "1px solid var(--gh-border, #e5e7eb)",
-                        background: "var(--gh-bg, white)",
-                        borderRadius: "4px",
-                        cursor: "grab",
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        boxShadow: "var(--gh-shadow-sm, 0 1px 3px rgba(0,0,0,0.1))",
-                        fontSize: "12px",
-                      }}>
-                      <DragIcon size={14} />
+                      className="prompt-action-btn"
+                      style={{ cursor: "grab" }}>
+                      <DragIcon size={16} />
                     </button>
                   </Tooltip>
                   {/* ⭐ 预览按钮 */}
@@ -1808,39 +1818,13 @@ export const PromptsTab: React.FC<PromptsTabProps> = ({
                         e.preventDefault()
                         setPreviewModal({ show: true, prompt: p })
                       }}
-                      style={{
-                        width: "24px",
-                        height: "24px",
-                        border: "1px solid var(--gh-border, #e5e7eb)",
-                        background: "var(--gh-bg, white)",
-                        borderRadius: "4px",
-                        cursor: "pointer",
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        boxShadow: "var(--gh-shadow-sm, 0 1px 3px rgba(0,0,0,0.1))",
-                        fontSize: "12px",
-                      }}>
-                      <EyeIcon size={14} />
+                      className="prompt-action-btn">
+                      <EyeIcon size={16} />
                     </button>
                   </Tooltip>
                   <Tooltip content={t("copy")}>
-                    <button
-                      onClick={(e) => handleCopy(p.content, e)}
-                      style={{
-                        width: "24px",
-                        height: "24px",
-                        border: "1px solid var(--gh-border, #e5e7eb)",
-                        background: "var(--gh-bg, white)",
-                        borderRadius: "4px",
-                        cursor: "pointer",
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        boxShadow: "var(--gh-shadow-sm, 0 1px 3px rgba(0,0,0,0.1))",
-                        fontSize: "12px",
-                      }}>
-                      <CopyIcon size={14} />
+                    <button onClick={(e) => handleCopy(p.content, e)} className="prompt-action-btn">
+                      <CopyIcon size={16} />
                     </button>
                   </Tooltip>
                   <Tooltip content={t("edit")}>
@@ -1850,40 +1834,15 @@ export const PromptsTab: React.FC<PromptsTabProps> = ({
                         e.preventDefault()
                         openEditModal(p)
                       }}
-                      style={{
-                        width: "24px",
-                        height: "24px",
-                        border: "1px solid var(--gh-border, #e5e7eb)",
-                        background: "var(--gh-bg, white)",
-                        borderRadius: "4px",
-                        cursor: "pointer",
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        boxShadow: "var(--gh-shadow-sm, 0 1px 3px rgba(0,0,0,0.1))",
-                        fontSize: "12px",
-                      }}>
-                      <EditIcon size={14} />
+                      className="prompt-action-btn">
+                      <EditIcon size={16} />
                     </button>
                   </Tooltip>
                   <Tooltip content={t("delete")}>
                     <button
                       onClick={(e) => handleDelete(p.id, e)}
-                      style={{
-                        width: "24px",
-                        height: "24px",
-                        border: "1px solid var(--gh-border, #e5e7eb)",
-                        background: "var(--gh-bg, white)",
-                        borderRadius: "4px",
-                        cursor: "pointer",
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        boxShadow: "var(--gh-shadow-sm, 0 1px 3px rgba(0,0,0,0.1))",
-                        fontSize: "12px",
-                        color: "var(--gh-text-danger, #ef4444)",
-                      }}>
-                      <DeleteIcon size={14} />
+                      className="prompt-action-btn danger">
+                      <DeleteIcon size={16} />
                     </button>
                   </Tooltip>
                 </div>

@@ -15,6 +15,7 @@ import {
   ToolsIcon,
   EyeIcon,
   SettingsIcon,
+  ThemeSystemIcon,
 } from "~components/icons"
 import { SparkleIcon } from "~components/icons/SparkleIcon"
 import { SHORTCUT_META } from "~constants/shortcuts"
@@ -226,14 +227,12 @@ const SETTING_ID_ROUTE_RULES: SettingRouteRule[] = [
 ]
 
 export const SETTING_ID_ALIASES: Record<string, string> = {
-  "general.panel.defaultOpen": "panel-default-open",
+  "general.panel.panelMode": "panel-mode",
   "general.panel.defaultPosition": "panel-default-position",
   "general.panel.defaultEdgeDistance": "panel-edge-distance",
   "general.panel.width": "panel-width",
   "general.panel.height": "panel-height",
-  "general.panel.edgeSnap": "panel-edge-snap",
   "general.panel.edgeSnapThreshold": "panel-edge-snap-threshold",
-  "general.panel.autoHide": "panel-auto-hide",
   "general.shortcuts.quickButtonsOpacity": "quick-buttons-opacity",
   "general.toolsMenu": "tools-menu-scrollTop",
   "siteSettings.layout.pageWidth.enabled": "layout-page-width-enabled",
@@ -339,9 +338,19 @@ const SHORTCUT_SETTINGS_SEARCH_ITEMS: SettingsSearchItem[] = Object.entries(SHOR
 
 export const SETTINGS_SEARCH_ITEMS: SettingsSearchItem[] = [
   {
-    settingId: "panel-default-open",
-    title: "默认显示面板",
-    keywords: ["panel", "default open", "默认打开"],
+    settingId: "panel-mode",
+    title: "面板模式",
+    keywords: [
+      "panel",
+      "mode",
+      "edge snap",
+      "floating",
+      "模式",
+      "吸附",
+      "悬浮",
+      "默认打开",
+      "自动隐藏",
+    ],
   },
   {
     settingId: "panel-default-position",
@@ -364,20 +373,11 @@ export const SETTINGS_SEARCH_ITEMS: SettingsSearchItem[] = [
     keywords: ["panel height", "高度"],
   },
   {
-    settingId: "panel-edge-snap",
-    title: "边缘自动吸附",
-    keywords: ["snap", "edge", "吸附"],
-  },
-  {
     settingId: "panel-edge-snap-threshold",
     title: "边缘吸附阈值",
     keywords: ["snap threshold", "edge snap", "吸附阈值"],
   },
-  {
-    settingId: "panel-auto-hide",
-    title: "自动隐藏面板",
-    keywords: ["auto hide", "panel"],
-  },
+
   {
     settingId: "quick-buttons-opacity",
     title: "快捷按钮透明度",
@@ -963,6 +963,7 @@ export const COLLAPSED_BUTTON_DEFS: Record<
     canToggle: boolean
     isPanelOnly: boolean
     isGroup?: boolean
+    hideWhenPanelOpen?: boolean
     IconComponent?: React.ComponentType<{ size?: number | string; color?: string }>
   }
 > = {
@@ -971,6 +972,7 @@ export const COLLAPSED_BUTTON_DEFS: Record<
     labelKey: "scrollTop",
     canToggle: true,
     isPanelOnly: false,
+    hideWhenPanelOpen: true,
     IconComponent: ScrollTopIcon,
   },
   panel: {
@@ -999,6 +1001,7 @@ export const COLLAPSED_BUTTON_DEFS: Record<
     canToggle: true,
     labelKey: "showCollapsedAnchorLabel",
     isPanelOnly: false,
+    hideWhenPanelOpen: true,
     IconComponent: AnchorIcon,
   },
   theme: {
@@ -1006,6 +1009,7 @@ export const COLLAPSED_BUTTON_DEFS: Record<
     labelKey: "showCollapsedThemeLabel",
     canToggle: true,
     isPanelOnly: false,
+    IconComponent: ThemeSystemIcon,
   },
   manualAnchor: {
     icon: "📍",
@@ -1020,6 +1024,7 @@ export const COLLAPSED_BUTTON_DEFS: Record<
     labelKey: "scrollBottom",
     canToggle: true,
     isPanelOnly: false,
+    hideWhenPanelOpen: true,
     IconComponent: ScrollBottomIcon,
   },
   zenMode: {

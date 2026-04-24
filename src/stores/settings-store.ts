@@ -173,6 +173,41 @@ const normalizeWidthRecord = (
   return result
 }
 
+/**
+ * 处理旧三态 panelMode（always-open/manual）到二态的迁移，
+ * 并在缺少 panelMode 时从更旧的 defaultOpen/edgeSnap 字段推导 panelMode
+ */
+const migratePanelMode = (panel?: Partial<Settings["panel"]>): "edge-snap" | "floating" => {
+  // 处理旧三态 panelMode 到二态的迁移
+  const oldMode = panel?.panelMode as string | undefined
+  if (oldMode === "always-open" || oldMode === "manual") return "floating"
+  if (oldMode === "edge-snap" || oldMode === "floating") return oldMode
+
+  // 从更旧的三字段推导
+  const defaultOpen = panel?.defaultOpen ?? true
+  const edgeSnap = panel?.edgeSnap ?? true
+
+  if (!defaultOpen) return "floating"
+  if (edgeSnap) return "edge-snap"
+  return "floating"
+}
+
+/**
+ * 从旧数据推导 lastPanelOpen 初始值
+ */
+const migrateLastPanelOpen = (panel?: Partial<Settings["panel"]>): boolean => {
+  // 如果已有 lastPanelOpen 字段，直接用
+  if (panel?.lastPanelOpen !== undefined) return panel.lastPanelOpen
+
+  // 旧三态 panelMode 迁移
+  const oldMode = panel?.panelMode as string | undefined
+  if (oldMode === "manual") return false
+  if (oldMode === "always-open") return true
+
+  // 从更旧的字段推导
+  return panel?.defaultOpen ?? true
+}
+
 const normalizeSettings = (settings: SettingsInput): Settings => {
   const {
     collapsedButtons: _legacyCollapsedButtons,
@@ -189,6 +224,11 @@ const normalizeSettings = (settings: SettingsInput): Settings => {
     panel: {
       ...DEFAULT_SETTINGS.panel,
       ...settings.panel,
+      panelMode:
+        settings.panel?.panelMode === "edge-snap" || settings.panel?.panelMode === "floating"
+          ? settings.panel.panelMode
+          : migratePanelMode(settings.panel),
+      lastPanelOpen: migrateLastPanelOpen(settings.panel),
     },
     content: {
       ...DEFAULT_SETTINGS.content,
@@ -298,134 +338,140 @@ const buildEffectiveSettings = (
     ? normalizeSettings({ ...persistedSettings, ...previewSettings })
     : persistedSettings
 
+// Captured set for safe hydration (avoids referencing store variable before assignment in sync hydration)
+let _hydrationSet: ((partial: Partial<SettingsState>) => void) | null = null
+
 export const useSettingsStore = create<SettingsState>()(
   persist(
-    (set, _get) => ({
-      settings: DEFAULT_SETTINGS,
-      persistedSettings: DEFAULT_SETTINGS,
-      previewSettings: null,
-      _hasHydrated: false,
-      _syncVersion: 0,
+    (set, _get) => (
+      (_hydrationSet = set),
+      {
+        settings: DEFAULT_SETTINGS,
+        persistedSettings: DEFAULT_SETTINGS,
+        previewSettings: null,
+        _hasHydrated: false,
+        _syncVersion: 0,
 
-      /**
-       * 合并更新 settings
-       */
-      setSettings: (newSettings) =>
-        set((state) => {
-          const nextPersistedSettings = normalizeSettings({
-            ...state.persistedSettings,
-            ...newSettings,
-          })
+        /**
+         * 合并更新 settings
+         */
+        setSettings: (newSettings) =>
+          set((state) => {
+            const nextPersistedSettings = normalizeSettings({
+              ...state.persistedSettings,
+              ...newSettings,
+            })
 
-          return {
-            persistedSettings: nextPersistedSettings,
-            previewSettings: null,
-            settings: nextPersistedSettings,
-          }
-        }),
+            return {
+              persistedSettings: nextPersistedSettings,
+              previewSettings: null,
+              settings: nextPersistedSettings,
+            }
+          }),
 
-      /**
-       * 设置临时预览 settings（不持久化）
-       */
-      setPreviewSettings: (previewSettings) =>
-        runWithoutPersist(() =>
-          set((state) => ({
-            previewSettings,
-            settings: buildEffectiveSettings(state.persistedSettings, previewSettings),
-          })),
-        ),
+        /**
+         * 设置临时预览 settings（不持久化）
+         */
+        setPreviewSettings: (previewSettings) =>
+          runWithoutPersist(() =>
+            set((state) => ({
+              previewSettings,
+              settings: buildEffectiveSettings(state.persistedSettings, previewSettings),
+            })),
+          ),
 
-      /**
-       * 清除临时预览 settings
-       */
-      clearPreviewSettings: () =>
-        runWithoutPersist(() =>
-          set((state) => ({
-            previewSettings: null,
-            settings: state.persistedSettings,
-          })),
-        ),
+        /**
+         * 清除临时预览 settings
+         */
+        clearPreviewSettings: () =>
+          runWithoutPersist(() =>
+            set((state) => ({
+              previewSettings: null,
+              settings: state.persistedSettings,
+            })),
+          ),
 
-      /**
-       * 更新嵌套设置项
-       * 例如: updateNestedSetting("tab", "autoRename", true)
-       */
-      updateNestedSetting: (section, key, value) =>
-        set((state) => {
-          const nextPersistedSettings = normalizeSettings({
-            ...state.persistedSettings,
-            [section]: {
-              ...(state.persistedSettings[section] as object),
-              [key]: value,
-            },
-          })
-
-          return {
-            persistedSettings: nextPersistedSettings,
-            previewSettings: null,
-            settings: nextPersistedSettings,
-          }
-        }),
-
-      /**
-       * 更新深层嵌套设置项（三层）
-       * 例如: updateDeepSetting("features", "outline", "enabled", true)
-       */
-      updateDeepSetting: (section, subsection, key, value) =>
-        set((state) => {
-          const sectionObj = state.persistedSettings[section] as Record<string, unknown>
-          const subsectionObj = (sectionObj?.[subsection] || {}) as Record<string, unknown>
-          const nextPersistedSettings = normalizeSettings({
-            ...state.persistedSettings,
-            [section]: {
-              ...sectionObj,
-              [subsection]: {
-                ...subsectionObj,
+        /**
+         * 更新嵌套设置项
+         * 例如: updateNestedSetting("tab", "autoRename", true)
+         */
+        updateNestedSetting: (section, key, value) =>
+          set((state) => {
+            const nextPersistedSettings = normalizeSettings({
+              ...state.persistedSettings,
+              [section]: {
+                ...(state.persistedSettings[section] as object),
                 [key]: value,
               },
-            },
-          })
+            })
 
-          return {
-            persistedSettings: nextPersistedSettings,
-            previewSettings: null,
-            settings: nextPersistedSettings,
-          }
-        }),
+            return {
+              persistedSettings: nextPersistedSettings,
+              previewSettings: null,
+              settings: nextPersistedSettings,
+            }
+          }),
 
-      /**
-       * 完全替换 settings（用于 WebDAV 恢复等场景）
-       */
-      replaceSettings: (settings) =>
-        set(() => {
-          const nextPersistedSettings = normalizeSettings({ ...DEFAULT_SETTINGS, ...settings })
+        /**
+         * 更新深层嵌套设置项（三层）
+         * 例如: updateDeepSetting("features", "outline", "enabled", true)
+         */
+        updateDeepSetting: (section, subsection, key, value) =>
+          set((state) => {
+            const sectionObj = state.persistedSettings[section] as Record<string, unknown>
+            const subsectionObj = (sectionObj?.[subsection] || {}) as Record<string, unknown>
+            const nextPersistedSettings = normalizeSettings({
+              ...state.persistedSettings,
+              [section]: {
+                ...sectionObj,
+                [subsection]: {
+                  ...subsectionObj,
+                  [key]: value,
+                },
+              },
+            })
 
-          return {
-            persistedSettings: nextPersistedSettings,
-            previewSettings: null,
-            settings: nextPersistedSettings,
-          }
-        }),
+            return {
+              persistedSettings: nextPersistedSettings,
+              previewSettings: null,
+              settings: nextPersistedSettings,
+            }
+          }),
 
-      /**
-       * 重置为默认设置
-       */
-      resetSettings: () =>
-        set(() => {
-          const nextPersistedSettings = normalizeSettings(DEFAULT_SETTINGS)
+        /**
+         * 完全替换 settings（用于 WebDAV 恢复等场景）
+         */
+        replaceSettings: (settings) =>
+          set(() => {
+            const nextPersistedSettings = normalizeSettings({ ...DEFAULT_SETTINGS, ...settings })
 
-          return {
-            persistedSettings: nextPersistedSettings,
-            previewSettings: null,
-            settings: nextPersistedSettings,
-          }
-        }),
+            return {
+              persistedSettings: nextPersistedSettings,
+              previewSettings: null,
+              settings: nextPersistedSettings,
+            }
+          }),
 
-      /**
-       * 设置 hydration 状态
-       */
-      setHasHydrated: (state) => runWithoutPersist(() => set({ _hasHydrated: state })),
-    }),
+        /**
+         * 重置为默认设置
+         */
+        resetSettings: () =>
+          set(() => {
+            const nextPersistedSettings = normalizeSettings(DEFAULT_SETTINGS)
+
+            return {
+              persistedSettings: nextPersistedSettings,
+              previewSettings: null,
+              settings: nextPersistedSettings,
+            }
+          }),
+
+        /**
+         * 设置 hydration 状态
+         */
+        setHasHydrated: (state) => runWithoutPersist(() => set({ _hasHydrated: state })),
+      }
+    ),
     {
       name: "settings", // chrome.storage key
       storage: createJSONStorage(() => storageAdapter),
@@ -434,37 +480,44 @@ export const useSettingsStore = create<SettingsState>()(
       // 自定义 merge，确保 hydration 后 settings / persistedSettings 同步一致，
       // 避免默认浅合并让 persistedSettings 暂时回落到 DEFAULT_SETTINGS。
       merge: (persistedState, currentState) => {
-        const persistedSettings = (persistedState as { settings?: SettingsInput } | undefined)
-          ?.settings
-        const normalizedSettings = normalizeSettings(
-          persistedSettings ?? currentState.persistedSettings,
-        )
+        try {
+          const persistedSettings = (persistedState as { settings?: SettingsInput } | undefined)
+            ?.settings
+          const normalizedSettings = normalizeSettings(
+            persistedSettings ?? currentState.persistedSettings,
+          )
 
-        return {
-          ...currentState,
-          settings: normalizedSettings,
-          persistedSettings: normalizedSettings,
-          previewSettings: null,
+          return {
+            ...currentState,
+            settings: normalizedSettings,
+            persistedSettings: normalizedSettings,
+            previewSettings: null,
+          }
+        } catch (e) {
+          console.error("[ophel] settings merge THREW:", e)
+          throw e
         }
       },
       // Hydration 完成回调
-      onRehydrateStorage: () => (state) => {
-        runWithoutPersist(() => {
-          if (state) {
-            const normalizedSettings = normalizeSettings(state.settings)
-            useSettingsStore.setState({
-              persistedSettings: normalizedSettings,
-              previewSettings: null,
-              settings: normalizedSettings,
-              _hasHydrated: true,
-            })
-            return
-          }
+      onRehydrateStorage: () => {
+        return (state, _error) => {
+          runWithoutPersist(() => {
+            if (state) {
+              const normalizedSettings = normalizeSettings(state.settings)
+              _hydrationSet?.({
+                persistedSettings: normalizedSettings,
+                previewSettings: null,
+                settings: normalizedSettings,
+                _hasHydrated: true,
+              })
+              return
+            }
 
-          // 首次空存储时，persist 可能不会把 state 实例传入回调。
-          // 这里直接用 store.setState 兜底，确保 userscript / extension 都能结束 hydration。
-          useSettingsStore.setState({ _hasHydrated: true })
-        })
+            // 首次空存储时，persist 可能不会把 state 实例传入回调。
+            // 这里直接用 captured set 兜底，确保 userscript / extension 都能结束 hydration。
+            _hydrationSet?.({ _hasHydrated: true })
+          })
+        }
       },
     },
   ),

@@ -45,67 +45,87 @@ interface FoldersState {
   updateFolder: (id: string, updates: Partial<Folder>) => void
   deleteFolder: (id: string) => void
   moveFolder: (id: string, direction: "up" | "down") => void
+  reorderFolders: (orderedIds: string[]) => void
   setHasHydrated: (state: boolean) => void
 }
 
 // ==================== Store 创建 ====================
 
+// Captured set for safe hydration (avoids referencing store variable before assignment in sync hydration)
+let _completeHydration: (() => void) | null = null
+
 export const useFoldersStore = create<FoldersState>()(
   persist(
-    (set, _get) => ({
-      folders: DEFAULT_FOLDERS,
-      _hasHydrated: false,
+    (set, _get) => (
+      (_completeHydration = () => set({ _hasHydrated: true })),
+      {
+        folders: DEFAULT_FOLDERS,
+        _hasHydrated: false,
 
-      addFolder: (name, icon) => {
-        const newFolder: Folder = {
-          id: "folder_" + Date.now(),
-          name: normalizeFolderName(name, icon),
-          icon,
-        }
-        set((state) => ({
-          folders: [...state.folders, newFolder],
-        }))
-        return newFolder
-      },
+        addFolder: (name, icon) => {
+          const newFolder: Folder = {
+            id: "folder_" + Date.now(),
+            name: normalizeFolderName(name, icon),
+            icon,
+          }
+          set((state) => ({
+            folders: [...state.folders, newFolder],
+          }))
+          return newFolder
+        },
 
-      updateFolder: (id, updates) =>
-        set((state) => ({
-          folders: state.folders.map((folder) => {
-            if (folder.id !== id) {
-              return folder
-            }
+        updateFolder: (id, updates) =>
+          set((state) => ({
+            folders: state.folders.map((folder) => {
+              if (folder.id !== id) {
+                return folder
+              }
 
-            const nextFolder = { ...folder, ...updates }
+              const nextFolder = { ...folder, ...updates }
+              return {
+                ...nextFolder,
+                name: normalizeFolderName(nextFolder.name, nextFolder.icon),
+              }
+            }),
+          })),
+
+        deleteFolder: (id) => {
+          // 不允许删除 inbox
+          if (id === "inbox") return
+          set((state) => ({
+            folders: state.folders.filter((f) => f.id !== id),
+          }))
+        },
+
+        moveFolder: (id, direction) =>
+          set((state) => {
+            const index = state.folders.findIndex((f) => f.id === id)
+            if (index === -1 || index === 0) return state // Inbox 固定在第一位
+
+            const newIndex = direction === "up" ? index - 1 : index + 1
+            if (newIndex <= 0 || newIndex >= state.folders.length) return state
+
+            const newFolders = [...state.folders]
+            ;[newFolders[index], newFolders[newIndex]] = [newFolders[newIndex], newFolders[index]]
+            return { folders: newFolders }
+          }),
+
+        reorderFolders: (orderedIds) =>
+          set((state) => {
+            const inbox = state.folders.find((f) => f.id === "inbox" || !!f.isDefault)
+            const nonDefault = state.folders.filter((f) => f.id !== "inbox" && !f.isDefault)
+            const reordered = orderedIds
+              .map((id) => nonDefault.find((f) => f.id === id))
+              .filter(Boolean) as Folder[]
+            const missing = nonDefault.filter((f) => !orderedIds.includes(f.id))
             return {
-              ...nextFolder,
-              name: normalizeFolderName(nextFolder.name, nextFolder.icon),
+              folders: [...(inbox ? [inbox] : []), ...reordered, ...missing],
             }
           }),
-        })),
 
-      deleteFolder: (id) => {
-        // 不允许删除 inbox
-        if (id === "inbox") return
-        set((state) => ({
-          folders: state.folders.filter((f) => f.id !== id),
-        }))
-      },
-
-      moveFolder: (id, direction) =>
-        set((state) => {
-          const index = state.folders.findIndex((f) => f.id === id)
-          if (index === -1 || index === 0) return state // Inbox 固定在第一位
-
-          const newIndex = direction === "up" ? index - 1 : index + 1
-          if (newIndex <= 0 || newIndex >= state.folders.length) return state
-
-          const newFolders = [...state.folders]
-          ;[newFolders[index], newFolders[newIndex]] = [newFolders[newIndex], newFolders[index]]
-          return { folders: newFolders }
-        }),
-
-      setHasHydrated: (state) => set({ _hasHydrated: state }),
-    }),
+        setHasHydrated: (state) => set({ _hasHydrated: state }),
+      }
+    ),
     {
       name: "folders", // chrome.storage key
       storage: createJSONStorage(() => chromeStorageAdapter),
@@ -123,8 +143,8 @@ export const useFoldersStore = create<FoldersState>()(
           folders: normalizeFolders(typedState.folders),
         }
       },
-      onRehydrateStorage: () => (state) => {
-        useFoldersStore.setState({ _hasHydrated: true })
+      onRehydrateStorage: () => () => {
+        _completeHydration?.()
       },
     },
   ),

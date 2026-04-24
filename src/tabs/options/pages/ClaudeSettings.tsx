@@ -85,18 +85,29 @@ const ClaudeSettings: React.FC<ClaudeSettingsProps> = ({ siteId }) => {
 
     // 1. 检查cookies权限 (仅当平台支持动态权限时)
     if (platform.hasCapability("permissions")) {
-      const checkResult = await sendToBackground({
-        type: MSG_CHECK_PERMISSIONS,
-        permissions: ["cookies"],
-      })
-
-      if (!checkResult.hasPermission) {
-        await sendToBackground({
-          type: MSG_REQUEST_PERMISSIONS,
-          permType: "cookies",
+      if (typeof chrome.permissions !== "undefined") {
+        // Options 页面直接调用 chrome.permissions API（request 已授权时不弹窗直接返回 true）
+        const granted = await chrome.permissions.request({
+          permissions: ["cookies"],
         })
-        showToast(t("claudeRequestPermission"), TOAST_DURATION.LONG)
-        return
+        if (!granted) {
+          showToast(t("claudeRequestPermission"), TOAST_DURATION.LONG)
+          return
+        }
+      } else {
+        // Content Script fallback
+        const checkResult = await sendToBackground({
+          type: MSG_CHECK_PERMISSIONS,
+          permissions: ["cookies"],
+        })
+        if (!checkResult.hasPermission) {
+          await sendToBackground({
+            type: MSG_REQUEST_PERMISSIONS,
+            permType: "cookies",
+          })
+          showToast(t("claudeRequestPermission"), TOAST_DURATION.LONG)
+          return
+        }
       }
     }
 
@@ -214,18 +225,29 @@ const ClaudeSettings: React.FC<ClaudeSettingsProps> = ({ siteId }) => {
     try {
       // 权限检查仅在扩展环境
       if (platform.hasCapability("permissions")) {
-        const checkResult = await sendToBackground({
-          type: MSG_CHECK_PERMISSIONS,
-          permissions: ["cookies"],
-        })
-
-        if (!checkResult.hasPermission) {
-          await sendToBackground({
-            type: MSG_REQUEST_PERMISSIONS,
-            permType: "cookies",
+        if (typeof chrome.permissions !== "undefined") {
+          // Options 页面直接调用 chrome.permissions API（request 已授权时不弹窗直接返回 true）
+          const granted = await chrome.permissions.request({
+            permissions: ["cookies"],
           })
-          showToast(t("claudeRequestPermission"), TOAST_DURATION.LONG)
-          return
+          if (!granted) {
+            showToast(t("claudeRequestPermission"), TOAST_DURATION.LONG)
+            return
+          }
+        } else {
+          // Content Script fallback
+          const checkResult = await sendToBackground({
+            type: MSG_CHECK_PERMISSIONS,
+            permissions: ["cookies"],
+          })
+          if (!checkResult.hasPermission) {
+            await sendToBackground({
+              type: MSG_REQUEST_PERMISSIONS,
+              permType: "cookies",
+            })
+            showToast(t("claudeRequestPermission"), TOAST_DURATION.LONG)
+            return
+          }
         }
       }
 

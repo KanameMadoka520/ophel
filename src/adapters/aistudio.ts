@@ -406,7 +406,7 @@ export class AIStudioAdapter extends SiteAdapter {
 
   getZenModeConfig() {
     return {
-      hide: ["ms-navbar", "ms-right-side-panel"],
+      hide: ["ms-navbar", "ms-navbar-v2", "ms-right-side-panel"],
     }
   }
 
@@ -661,16 +661,10 @@ export class AIStudioAdapter extends SiteAdapter {
     const isOnLibrary = currentPath === "/library"
 
     if (!isOnLibrary) {
-      // 不在 library 页面时，点击"查看所有历史"按钮进行 SPA 跳转
-      const viewAllBtn = document.querySelector(
-        'a.view-all-history-link[href="/library"]',
-      ) as HTMLAnchorElement
-      if (viewAllBtn) {
-        viewAllBtn.click()
-        // 等待 library 页面 DOM 加载
-        await this.waitForLibraryTable()
-      } else {
-        // 降级：直接导航
+      // 尝试 SPA 跳转到 library 页面（新版侧边栏已移除 view-all-history-link）
+      const navigated = await this.navigateToLibraryViaSpa()
+      if (!navigated) {
+        // SPA 导航失败，降级为全页面跳转
         window.location.href = "/library"
         return
       }
@@ -695,13 +689,44 @@ export class AIStudioAdapter extends SiteAdapter {
   }
 
   /**
+   * 通过 SPA 方式导航到 /library 页面
+   * 优先寻找页面内的 Angular 路由链接，回退到 history.pushState + popstate
+   */
+  private async navigateToLibraryViaSpa(): Promise<boolean> {
+    // 方法 1: 仅在导航容器（ms-navbar-v2）内查找 /library 链接，
+    // 或链接本身带有 Angular routerLink 属性，确保是 SPA 路由链接而非普通 <a>
+    const scopedLink = document.querySelector(
+      'ms-navbar-v2 a[href="/library"]',
+    ) as HTMLAnchorElement | null
+    const fallbackLink = document.querySelector('a[href="/library"]') as HTMLAnchorElement | null
+    const candidate = scopedLink ?? fallbackLink
+    const isRouterLink =
+      !!candidate &&
+      (!!candidate.closest("ms-navbar-v2") ||
+        candidate.hasAttribute("routerlink") ||
+        candidate.hasAttribute("ng-reflect-router-link"))
+
+    if (isRouterLink && candidate) {
+      candidate.click()
+      return this.waitForLibraryTable()
+    }
+
+    // 方法 2: 使用 history.pushState + popstate 触发 Angular 路由器
+    window.history.pushState(null, "", "/library")
+    window.dispatchEvent(new PopStateEvent("popstate", { state: null }))
+    return this.waitForLibraryTable()
+  }
+
+  /**
    * 等待 library 页面表格加载完成
    */
   private async waitForLibraryTable(): Promise<boolean> {
     // 最多等待 5 秒
+    // 以 ms-library-table table 出现为就绪信号（而非必须有 tbody tr），
+    // 避免历史列表为空时误判为导航失败
     for (let i = 0; i < 50; i++) {
       await new Promise((resolve) => setTimeout(resolve, 100))
-      const table = document.querySelector("ms-library-table table tbody tr")
+      const table = document.querySelector("ms-library-table table")
       if (table) {
         // 额外等待 200ms 确保数据渲染完成
         await new Promise((resolve) => setTimeout(resolve, 200))
@@ -728,7 +753,7 @@ export class AIStudioAdapter extends SiteAdapter {
       if (!match) return
 
       const id = match[1]
-      const title = link.textContent?.trim() || "Untitled"
+      const title = link.getAttribute("title")?.trim() || link.textContent?.trim() || "Untitled"
 
       conversations.push({
         id,
@@ -796,52 +821,59 @@ export class AIStudioAdapter extends SiteAdapter {
   }
 
   getSidebarScrollContainer(): Element | null {
-    // AI Studio 左侧边栏历史记录区域
-    // 优先查找包含历史记录的 aside 元素
-    const aside = document.querySelector("aside")
-    if (aside) return aside
-    return null
+    // /library 页面返回真实的会话列表滚动容器
+    if (window.location.pathname === "/library") {
+      return document.querySelector("ms-library-table .lib-table-wrapper") || null
+    }
+
+    // 非 /library 页面：新版 AI Studio（ms-navbar-v2）侧边栏不再包含可滚动的历史列表，
+    // 但上层 waitForSidebarReady() 需要一个稳定可获取的元素作为「页面就绪」信号，
+    // 否则首次安装或会话列表为空时的自动全量同步（autoFullSync）会被永久阻塞。
+    // 这里返回稳定宿主容器作为就绪信号，而非直接返回 null。
+    return (
+      document.querySelector("ms-navbar-v2") ||
+      document.querySelector("main") ||
+      document.body ||
+      null
+    )
   }
 
   getConversationObserverConfig(): ConversationObserverConfig | null {
-    return {
-      // 精确匹配侧边栏中的会话链接（带有 prompt-link 类）
-      selector: 'a.prompt-link[href*="/prompts/"]:not([href*="new_chat"])',
-      // 开启 shadow 以启用轮询机制
-      // AI Studio 使用 Angular 数据绑定，标题变更可能绕过 MutationObserver
-      // 轮询可以作为后备检测标题变更
-      shadow: true,
-      extractInfo: (el: Element) => {
-        const href = el.getAttribute("href")
-        if (!href) return null
+    // 新版 AI Studio 侧边栏（ms-navbar-v2）已不含历史会话链接
+    // 会话列表仅通过 /library 页面获取，无需 DOM 观察器
+    if (window.location.pathname === "/library") {
+      return {
+        selector: 'ms-library-table a.name-btn[href*="/prompts/"]:not([href*="new_chat"])',
+        shadow: false,
+        extractInfo: (el: Element) => {
+          const href = el.getAttribute("href")
+          if (!href) return null
 
-        const match = href.match(/\/prompts\/([^/]+)/)
-        if (!match) return null
+          const match = href.match(/\/prompts\/([^/]+)/)
+          if (!match) return null
 
-        const id = match[1]
-        const title = el.textContent?.trim() || "Untitled"
+          const id = match[1]
+          const title = el.getAttribute("title")?.trim() || el.textContent?.trim() || "Untitled"
 
-        return { id, title, url: href, isPinned: false }
-      },
-      getTitleElement: (el: Element) => {
-        // 链接本身就是标题元素
-        return el
-      },
+          return { id, title, url: href, isPinned: false }
+        },
+        getTitleElement: (el: Element) => el,
+      }
     }
+
+    return null
   }
 
   navigateToConversation(id: string, url?: string): boolean {
-    // 尝试找到页面中的对应链接并点击（SPA 跳转，避免页面刷新）
-    // 侧边栏：a.prompt-link[href*="/prompts/ID"]
-    // Library 页面表格：a.name-btn[href*="/prompts/ID"]
+    // 优先在 ms-library-table 内查找 a.name-btn，避免误命中页面其他区域的同 URL 链接
     const link = document.querySelector(
-      `a.prompt-link[href*="/prompts/${id}"], a.name-btn[href*="/prompts/${id}"]`,
-    ) as HTMLAnchorElement
+      `ms-library-table a.name-btn[href*="/prompts/${id}"]`,
+    ) as HTMLAnchorElement | null
     if (link) {
       link.click()
       return true
     }
-    // 降级：页面刷新
+    // 降级：硬跳转
     window.location.href = url || `/prompts/${id}`
     return true
   }
@@ -1284,16 +1316,9 @@ export class AIStudioAdapter extends SiteAdapter {
       return { enteredLibrary: false, originalPath }
     }
 
-    const viewAllBtn = document.querySelector(
-      'a.view-all-history-link[href="/library"]',
-    ) as HTMLAnchorElement | null
-    if (!viewAllBtn) {
-      return { enteredLibrary: false, originalPath }
-    }
-
-    viewAllBtn.click()
-    const loaded = await this.waitForLibraryTable()
-    if (!loaded || window.location.pathname !== "/library") {
+    // 尝试 SPA 导航到 library（新版侧边栏已移除 view-all-history-link）
+    const navigated = await this.navigateToLibraryViaSpa()
+    if (!navigated || window.location.pathname !== "/library") {
       return { enteredLibrary: false, originalPath }
     }
 

@@ -91,6 +91,22 @@ const getGlobalSearchHighlightRangesFromIndexes = (
 
 export type GlobalSearchHighlightMatchType = "none" | "exact" | "fuzzy"
 
+// 模块级缓存：跨渲染/跨组件生命周期复用相同参数的计算结果，
+// 直到显式调用 clearGlobalSearchHighlightCache()，或达到上限后被整体清空。
+const highlightCache = new Map<
+  string,
+  Array<{ text: string; matchType: GlobalSearchHighlightMatchType }>
+>()
+const HIGHLIGHT_CACHE_MAX = 500
+
+const getHighlightCacheKey = (value: string, tokens: string[], fuzzyIndexes?: number[]): string => {
+  return `${value}\0${tokens.join("\0")}\0${fuzzyIndexes ? fuzzyIndexes.join(",") : ""}`
+}
+
+export const clearGlobalSearchHighlightCache = () => {
+  highlightCache.clear()
+}
+
 export const splitGlobalSearchHighlightSegments = (
   value: string,
   tokens: string[],
@@ -100,6 +116,27 @@ export const splitGlobalSearchHighlightSegments = (
     return []
   }
 
+  const cacheKey = getHighlightCacheKey(value, tokens, fuzzyIndexes)
+  const cached = highlightCache.get(cacheKey)
+  if (cached) return cached
+
+  const result = splitGlobalSearchHighlightSegmentsUncached(value, tokens, fuzzyIndexes)
+
+  if (highlightCache.size >= HIGHLIGHT_CACHE_MAX) {
+    // LRU 逐条驱逐：Map 保持插入顺序，删除最旧的一条
+    const oldest = highlightCache.keys().next().value
+    if (oldest !== undefined) highlightCache.delete(oldest)
+  }
+  highlightCache.set(cacheKey, result)
+
+  return result
+}
+
+const splitGlobalSearchHighlightSegmentsUncached = (
+  value: string,
+  tokens: string[],
+  fuzzyIndexes?: number[],
+): Array<{ text: string; matchType: GlobalSearchHighlightMatchType }> => {
   const exactRanges = getGlobalSearchHighlightRanges(value, tokens)
   const fuzzyRanges = getGlobalSearchHighlightRangesFromIndexes(value, fuzzyIndexes)
 

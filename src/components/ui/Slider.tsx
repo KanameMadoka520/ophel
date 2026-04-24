@@ -118,7 +118,6 @@ export const Slider: React.FC<SliderProps> = ({
     hasPendingCommitRef.current = false
     setDraftValue(safeDefaultValue)
     draftValueRef.current = safeDefaultValue
-    onPreviewChange?.(safeDefaultValue)
     onChange(safeDefaultValue)
   }
 
@@ -149,29 +148,35 @@ export const Slider: React.FC<SliderProps> = ({
         } as React.CSSProperties
       }>
       <div className="settings-slider-main">
-        <input
-          type="range"
-          className="settings-slider-input"
-          min={min}
-          max={max}
-          step={step}
-          value={draftValue}
-          onChange={handleChange}
-          onPointerDown={() => setIsDragging(true)}
-          onMouseDown={() => setIsDragging(true)}
-          onTouchStart={() => setIsDragging(true)}
-          onBlur={() => {
-            setIsDragging(false)
-            commitValue()
-          }}
-          onKeyUp={handleKeyUp}
-          disabled={disabled}
-          aria-label={ariaLabel}
-          aria-valuemin={min}
-          aria-valuemax={max}
-          aria-valuenow={draftValue}
-          aria-valuetext={displayValue}
-        />
+        <div className="settings-slider-track">
+          <input
+            type="range"
+            className="settings-slider-input"
+            min={min}
+            max={max}
+            step={step}
+            value={draftValue}
+            onChange={handleChange}
+            onPointerDown={() => setIsDragging(true)}
+            onMouseDown={() => setIsDragging(true)}
+            onTouchStart={() => setIsDragging(true)}
+            onBlur={() => {
+              setIsDragging(false)
+              commitValue()
+            }}
+            onKeyUp={handleKeyUp}
+            disabled={disabled}
+            aria-label={ariaLabel}
+            aria-valuemin={min}
+            aria-valuemax={max}
+            aria-valuenow={draftValue}
+            aria-valuetext={displayValue}
+          />
+          <div className="settings-slider-boundary">
+            <span>{formatValue ? formatValue(min) : `${min}${unit || ""}`}</span>
+            <span>{formatValue ? formatValue(max) : `${max}${unit || ""}`}</span>
+          </div>
+        </div>
         <span className="settings-slider-value">{displayValue}</span>
         {safeDefaultValue !== undefined && (
           <button
@@ -184,11 +189,6 @@ export const Slider: React.FC<SliderProps> = ({
             <RestoreIcon size={14} />
           </button>
         )}
-      </div>
-
-      <div className="settings-slider-boundary">
-        <span>{formatValue ? formatValue(min) : `${min}${unit || ""}`}</span>
-        <span>{formatValue ? formatValue(max) : `${max}${unit || ""}`}</span>
       </div>
     </div>
   )

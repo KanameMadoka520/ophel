@@ -10,24 +10,21 @@ body:
         Thanks for taking the time to fill out this bug report! If Ophel helps you, please give it a Star 🌟
 
         > [!NOTE]
-        > - ⚠️ 本项目由个人维护，**问题修复不等于一定会实现**（取决于复现难度和精力）。
-        > - ⚠️ 修复优先级会综合评估项目整体情况。
-        > - ⚠️ **情绪化或命令式表达**不会提高优先级。
-        >
-        > 请确认你理解以上说明后再提交 Issue。
+        > - 本项目由个人维护，**问题修复不保证一定实现**（取决于复现难度与精力）。
+        >   This project is personally maintained — bug fixes are not guaranteed and depend on reproducibility and bandwidth.
+        > - 修复优先级会根据项目整体情况综合评估。
+        >   Fix priority is evaluated based on the overall project status.
+        > - 提交前请确认您使用的是 Ophel **最新版本**，旧版本的问题可能已修复。
+        >   Please verify you are using the **latest version** of Ophel before submitting — the issue may already be fixed.
 
   - type: checkboxes
     id: checklist
     attributes:
       label: 前置检查 | Essential Checklist
       options:
-        - label: 我已阅读并理解项目的问题反馈与边界说明 | I have read and understood the project's instructions
-          required: true
         - label: 我已在 Issue 中搜索过类似问题，确认这不是一个重复问题 | I have searched for existing issues and confirmed this is not a duplicate
           required: true
         - label: 我理解如果未提供清晰的复现步骤或环境信息，Issue 可能会被关闭 | I understand that the issue may be closed if missing reproduction steps or environment info
-          required: true
-        - label: 我确认使用的是插件的最新版本 | I confirm I am using the latest version of the extension
           required: true
         - label: 我已为项目点了 Star 🌟 | I have starred the project 🌟
           required: false
@@ -63,9 +60,11 @@ body:
   - type: input
     id: version
     attributes:
-      label: 扩展版本 | Extension Version
-      description: 请在扩展管理中查看 (e.g. v1.0.0) | Check in extension manager
-      placeholder: v1.0.0
+      label: Ophel 版本 | Ophel Version
+      description: |
+        填写 Ophel 本身的版本号（非浏览器 / 脚本管理器版本）。
+        Enter the Ophel version number (not your browser or script manager version).
+      placeholder: "e.g. 1.0.39"
     validations:
       required: true
 

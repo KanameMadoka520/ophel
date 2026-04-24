@@ -11,7 +11,22 @@
   height: 100vh;
   background: var(--gh-bg, #f9fafb);
   color: var(--gh-text, #374151);
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+  font-family:
+    "Inter",
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    Roboto,
+    "Helvetica Neue",
+    "Apple SD Gothic Neo",
+    "Malgun Gothic",
+    "PingFang SC",
+    "Microsoft YaHei",
+    "Apple Color Emoji",
+    "Segoe UI Emoji",
+    "Segoe UI Symbol",
+    sans-serif;
 }
 
 /* 侧边栏 */
@@ -58,65 +73,193 @@
   flex-direction: column;
 }
 
-/* 侧边栏 GitHub Star 特效链接 */
-.sidebar-github-link {
+/* 侧边栏底部社区链接（替代原 GitHub Star 特效链接） */
+.sidebar-community-links {
+  display: flex;
+  align-items: center;
+  justify-content: space-evenly; /* 均匀分布在底部 */
+  gap: 4px;
+  margin: auto 8px 12px 8px; /* 增加一点下沉感，避免撞底 */
+  padding: 6px 8px;
+  background: transparent;
+}
+
+@keyframes communityPulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(0, 0, 0, 0);
+    transform: scale(1);
+    background: var(--pulse-bg);
+  }
+  10% {
+    box-shadow: 0 0 0 6px rgba(0, 0, 0, 0);
+    transform: scale(1.05);
+    background: var(--pulse-bg-hover);
+  }
+  20% {
+    box-shadow: 0 0 0 0 rgba(0, 0, 0, 0);
+    transform: scale(1);
+    background: var(--pulse-bg);
+  }
+}
+
+.sidebar-social-btn {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
-  margin: auto 8px 8px 8px; /* 自动吸收上部空间，左右预留防贴边留白 */
-  padding: 10px 14px;
-  background: var(--gh-bg-secondary, #f9fafb);
-  border: 1px solid var(--gh-border, #e5e7eb);
-  border-radius: 12px;
-  color: var(--gh-text-secondary, #4b5563);
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  color: var(--gh-text-tertiary, #9ca3af);
   text-decoration: none;
-  font-size: 13px;
-  font-weight: 600;
-  transition: all 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.02);
+  background: var(--pulse-bg, transparent); /* 默认用 pulse-bg 打底 */
+  transition:
+    transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1),
+    color 0.2s,
+    background 0.2s,
+    box-shadow 0.2s;
+  position: relative;
+  /* 应用 8 秒轮回动画 */
+  animation: communityPulse 8s infinite cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-.sidebar-github-link:hover {
+/* Hover 强压制动画并展示明亮颜色 */
+.sidebar-social-btn:hover {
+  animation-play-state: paused !important; /* 悬浮时暂停呼吸动画 */
+}
+
+/* 尊重系统减少动效偏好 */
+@media (prefers-reduced-motion: reduce) {
+  .sidebar-social-btn {
+    animation: none;
+    transition: none;
+  }
+}
+
+/* 1. Review (Chrome/Firefox/Greasyfork) */
+.sidebar-social-btn.review-btn {
+  color: #6366f1;
+  --pulse-bg: rgba(99, 102, 241, 0.08); /* 极弱紫紫 */
+  --pulse-bg-hover: rgba(99, 102, 241, 0.15);
+  animation-delay: 0s;
+}
+.sidebar-social-btn.review-btn:hover {
+  color: #ffffff !important;
+  background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%) !important;
+  box-shadow: 0 4px 10px rgba(124, 58, 237, 0.25);
   transform: translateY(-2px);
-  border-color: #d1d5db;
-  color: #111827;
-  background: var(--gh-bg, #ffffff);
-  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.05);
 }
 
-:host-context([data-gh-mode="dark"]) .sidebar-github-link {
-  background: rgba(255, 255, 255, 0.03);
-  color: #9ca3af;
-  border-color: rgba(255, 255, 255, 0.08);
+/* 2. GitHub */
+.sidebar-social-btn.github-btn {
+  color: #24292f;
+  --pulse-bg: rgba(36, 41, 47, 0.05);
+  --pulse-bg-hover: rgba(36, 41, 47, 0.1);
+  animation-delay: 2s;
+}
+:host-context([data-gh-mode="dark"]) .sidebar-social-btn.github-btn {
+  color: #ffffff;
+  --pulse-bg: rgba(255, 255, 255, 0.08);
+  --pulse-bg-hover: rgba(255, 255, 255, 0.15);
+}
+.sidebar-social-btn.github-btn:hover {
+  color: #ffffff !important;
+  background: #24292f !important;
+  box-shadow: 0 4px 10px rgba(36, 41, 47, 0.25);
+  transform: translateY(-2px);
+}
+:host-context([data-gh-mode="dark"]) .sidebar-social-btn.github-btn:hover {
+  background: #ffffff !important;
+  color: #000000 !important;
+  box-shadow: 0 4px 10px rgba(255, 255, 255, 0.25);
 }
 
-:host-context([data-gh-mode="dark"]) .sidebar-github-link:hover {
-  border-color: rgba(255, 255, 255, 0.2);
-  background: rgba(255, 255, 255, 0.08);
-  color: #f9fafb;
+/* 3. Ko-fi */
+.sidebar-social-btn.kofi-btn {
+  color: #ff5e5b;
+  --pulse-bg: rgba(255, 94, 91, 0.08);
+  --pulse-bg-hover: rgba(255, 94, 91, 0.15);
+  animation-delay: 4s;
+}
+.sidebar-social-btn.kofi-btn:hover {
+  color: #ffffff !important;
+  background: #ff5e5b !important;
+  box-shadow: 0 4px 10px rgba(255, 94, 91, 0.25);
+  transform: translateY(-2px);
 }
 
-/* 侧边栏底部快捷设置 */
+/* 4. Discord */
+.sidebar-social-btn.discord-btn {
+  color: #5865f2;
+  --pulse-bg: rgba(88, 101, 242, 0.08);
+  --pulse-bg-hover: rgba(88, 101, 242, 0.15);
+  animation-delay: 6s;
+}
+.sidebar-social-btn.discord-btn:hover {
+  color: #ffffff !important;
+  background: #5865f2 !important;
+  box-shadow: 0 4px 10px rgba(88, 101, 242, 0.25);
+  transform: translateY(-2px);
+}
+
+/* =========================================
+   Sidebar Lower Area - Option B: The Minimalist Dock
+   ========================================= */
+
+/* 1. 消除顶部的生硬截断线，用伪元素画一条居中极细虚化线，增加通透感 */
 .settings-sidebar-footer {
-  padding: 12px 14px 16px 14px;
-  border-top: 1px solid var(--gh-border, #e5e7eb);
+  padding: 10px 14px 16px 14px; /* 缩减上方的断裂感 */
+  border-top: none; /* 去除原本非常突兀的分界线 */
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  background: var(--gh-bg, #ffffff);
+  gap: 8px; /* 收紧主题与语言的间隙 */
+  background: transparent;
+  position: relative;
 }
 
-/* 主题切换 - 分段控制器 */
+.settings-sidebar-footer::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 14px;
+  right: 14px;
+  height: 1px;
+  background: linear-gradient(
+    to right,
+    transparent,
+    var(--gh-border, #e5e7eb) 20%,
+    var(--gh-border, #e5e7eb) 80%,
+    transparent
+  );
+  opacity: 0.6;
+}
+:host-context([data-gh-mode="dark"]) .settings-sidebar-footer::before {
+  background: linear-gradient(
+    to right,
+    transparent,
+    rgba(255, 255, 255, 0.08) 20%,
+    rgba(255, 255, 255, 0.08) 80%,
+    transparent
+  );
+}
+
+/* 2. 主题切换 - The Pill Dock */
 .settings-theme-segmented {
   display: flex;
-  background: var(--gh-hover, #f3f4f6);
+  background: var(--gh-bg-tertiary, #f3f4f6);
   padding: 4px;
-  border-radius: 10px;
+  border-radius: 12px; /* 更加圆润的大切角 */
   gap: 4px;
   min-width: 0;
   max-width: 100%;
   overflow: hidden;
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.04); /* 轻微的内凹下沉感 */
+  transition: background 0.3s ease;
+}
+
+:host-context([data-gh-mode="dark"]) .settings-theme-segmented {
+  background: rgba(255, 255, 255, 0.04);
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.15);
 }
 
 .settings-theme-segment {
@@ -127,13 +270,13 @@
   gap: 6px;
   padding: 6px 4px;
   min-width: 0;
-  border-radius: 8px;
+  border-radius: 8px; /* 紧紧包裹内的圆角 */
   border: none;
   background: transparent;
   color: var(--gh-text-secondary, #6b7280);
   font-size: 13px;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
   overflow: hidden;
 }
 
@@ -152,7 +295,7 @@
   align-items: center;
   justify-content: center;
   color: inherit;
-  transition: color 0.2s ease;
+  transition: transform 0.2s ease;
 }
 
 .settings-theme-segmented.is-compact .settings-theme-segment {
@@ -174,45 +317,87 @@
   color: var(--gh-text, #374151);
 }
 
+/* 激活状态的拔出立体感 */
 .settings-theme-segment.active {
   background: var(--gh-bg, #ffffff);
-  color: var(--gh-text, #1f2937);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  color: var(--gh-text, #111827);
+  box-shadow:
+    0 2px 6px rgba(0, 0, 0, 0.06),
+    0 1px 2px rgba(0, 0, 0, 0.08);
   font-weight: 500;
+  transform: translateY(-1px); /* 轻微的物理高度拔出 */
 }
 
-/* 语言切换 - 行内文字链 */
+/* 深色模式下的 Theme Segment Active */
+:host-context([data-gh-mode="dark"]) .settings-theme-segment {
+  color: #9ca3af;
+}
+:host-context([data-gh-mode="dark"]) .settings-theme-segment:hover {
+  color: #e5e7eb;
+}
+:host-context([data-gh-mode="dark"]) .settings-theme-segment.active {
+  background: rgba(255, 255, 255, 0.12);
+  color: #ffffff;
+  box-shadow:
+    0 4px 12px rgba(0, 0, 0, 0.3),
+    inset 0 1px 0 rgba(255, 255, 255, 0.1);
+}
+
+/* 3. 语言切换 - Minimalist Bubble Label */
 .settings-lang-inline {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
+  gap: 4px;
+  padding: 4px 8px;
+  background: transparent;
+  border-radius: 8px;
+  align-self: center; /* 不拉紧占满整宽，聚拢中间 */
 }
 
 .lang-link {
   background: none;
   border: none;
-  padding: 4px 6px;
-  color: var(--gh-text-secondary, #9ca3af);
+  padding: 4px 8px;
+  color: var(--gh-text-tertiary, #9ca3af);
   font-size: 12px;
+  font-weight: 500;
   cursor: pointer;
-  border-radius: 4px;
-  transition: all 0.15s ease;
+  border-radius: 6px;
+  transition: all 0.2s ease;
+  position: relative;
 }
 
 .lang-link:hover {
   color: var(--gh-text, #374151);
+  background: var(--gh-bg-secondary, #f9fafb);
 }
 
 .lang-link.active {
-  color: var(--gh-primary, #4285f4);
+  color: var(--gh-text, #111827);
   font-weight: 600;
-  background: var(--gh-active-bg, #e0e7ff);
+  background: var(--gh-hover, #f3f4f6);
+}
+
+/* 深色模式的文字链打底 */
+:host-context([data-gh-mode="dark"]) .lang-link:hover {
+  color: #f3f4f6;
+  background: rgba(255, 255, 255, 0.05);
+}
+:host-context([data-gh-mode="dark"]) .lang-link.active {
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.1);
 }
 
 .lang-divider {
-  color: var(--gh-border, #e5e7eb);
-  font-size: 12px;
+  width: 1px;
+  height: 10px;
+  background-color: var(--gh-border, #e5e7eb);
+  margin: 0 4px;
+  opacity: 0.8;
+}
+:host-context([data-gh-mode="dark"]) .lang-divider {
+  background-color: rgba(255, 255, 255, 0.15);
 }
 
 .settings-nav-item {
@@ -230,6 +415,8 @@
   background: transparent;
   width: 100%;
   text-align: left;
+  position: relative;
+  overflow: hidden;
 }
 
 .settings-nav-item:hover {
@@ -238,9 +425,21 @@
 }
 
 .settings-nav-item.active {
-  background: var(--gh-active-bg, #e0e7ff);
+  background: var(--gh-active-bg, rgba(66, 133, 244, 0.08));
   color: var(--gh-primary, #4285f4);
-  font-weight: 500;
+  font-weight: 600;
+}
+
+.settings-nav-item.active::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  height: 50%;
+  width: 3px;
+  background-color: var(--gh-primary, #4285f4);
+  border-radius: 0 4px 4px 0;
 }
 
 .settings-nav-item-icon {
@@ -253,6 +452,7 @@
 .settings-content {
   flex: 1;
   overflow-y: auto;
+  scrollbar-gutter: stable;
   padding: 24px 32px;
 }
 
@@ -485,9 +685,13 @@
   gap: 12px;
 }
 
-.settings-slider-input {
+.settings-slider-track {
   flex: 1;
   min-width: 0;
+}
+
+.settings-slider-input {
+  width: 100%;
   height: 6px;
   border-radius: 999px;
   outline: none;
@@ -590,7 +794,7 @@
 .settings-slider-boundary {
   display: flex;
   justify-content: space-between;
-  margin-top: 6px;
+  margin-top: 4px;
   font-size: 11px;
   color: var(--gh-text-secondary, #9ca3af);
   user-select: none;
@@ -677,17 +881,32 @@
   border-radius: 10px;
   border: 2px solid var(--gh-border, #e5e7eb);
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
   text-align: center;
+  background: var(--gh-card-bg, #fff);
 }
 
 .settings-theme-card:hover {
   border-color: var(--gh-primary, #4285f4);
+  border-style: dashed; /* 虚线 = "候选态"，与实线选中态形成语义区分 */
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(66, 133, 244, 0.08);
+}
+
+.settings-theme-card:not(.active) {
+  opacity: 0.85; /* 未选中调白一点透明度，让激活态更突出 */
+}
+
+.settings-theme-card:not(.active):hover {
+  opacity: 1;
 }
 
 .settings-theme-card.active {
   border-color: var(--gh-primary, #4285f4);
+  border-style: solid; /* 实线 = 确定选中，不受 hover 虚线覆盖 */
   background: rgba(66, 133, 244, 0.05);
+  transform: scale(1.03);
+  box-shadow: 0 6px 16px rgba(66, 133, 244, 0.2);
 }
 
 .settings-theme-preview {
@@ -1030,16 +1249,46 @@
   margin-top: 0;
 }
 
+/* 渐变色 Slogan 改为徽章风格 */
+.about-slogan-badge {
+  display: inline-flex;
+  align-items: center;
+  font-size: 14px;
+  font-weight: 600;
+  padding: 6px 14px;
+  border-radius: 20px;
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.08) 0%, rgba(168, 85, 247, 0.08) 100%);
+  color: #6366f1;
+  border: 1px solid rgba(99, 102, 241, 0.15);
+  box-shadow: 0 2px 10px rgba(99, 102, 241, 0.05);
+}
+
+html[data-theme="dark"] .about-slogan-badge {
+  background: linear-gradient(135deg, rgba(129, 140, 248, 0.12) 0%, rgba(192, 132, 252, 0.12) 100%);
+  color: #c4b5fd;
+  border-color: rgba(167, 139, 250, 0.2);
+}
+
+/* 废弃 .about-slogan */
+.about-slogan {
+  display: none;
+}
+
 /* Hero Card */
 .about-hero-card {
   background: var(--gh-bg-secondary, #f3f4f6);
-  border: 1px solid var(--gh-border, #e5e7eb);
+  border: 1px solid rgba(0, 0, 0, 0.04);
   border-radius: 16px;
   padding: 24px;
   display: flex;
   gap: 20px;
   align-items: flex-start;
   margin-bottom: 32px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
+}
+
+html[data-theme="dark"] .about-hero-card {
+  border-color: rgba(255, 255, 255, 0.05);
 }
 
 .about-hero-logo {
@@ -1067,36 +1316,63 @@
   font-size: 20px;
   font-weight: 700;
   color: var(--gh-text);
-  margin-bottom: 8px;
+  margin-bottom: 10px;
   display: flex;
   align-items: center;
   gap: 12px;
 }
 
 .about-hero-version {
-  font-size: 12px;
-  font-weight: 500;
-  padding: 2px 8px;
-  border-radius: 12px;
-  background: var(--gh-text-secondary, #9ca3af);
-  color: #fff;
+  font-size: 11px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
+    "Courier New", monospace;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  padding: 4px 10px;
+  border-radius: 8px;
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.08) 0%, rgba(168, 85, 247, 0.08) 100%);
+  color: #6366f1;
+  border: 1px solid rgba(99, 102, 241, 0.2);
+  box-shadow: 0 2px 8px rgba(99, 102, 241, 0.05);
+  display: inline-flex;
+  align-items: center;
+  position: relative;
+  overflow: hidden;
+  text-transform: uppercase;
+}
+
+@media (prefers-color-scheme: dark) {
+  .about-hero-version {
+    background: linear-gradient(
+      135deg,
+      rgba(129, 140, 248, 0.15) 0%,
+      rgba(192, 132, 252, 0.15) 100%
+    );
+    color: #c4b5fd;
+    border-color: rgba(167, 139, 250, 0.3);
+    box-shadow: 0 2px 8px rgba(139, 92, 246, 0.15);
+  }
 }
 
 .about-hero-desc {
   font-size: 14px;
   color: var(--gh-text-secondary);
-  line-height: 1.6;
+  line-height: 1.65;
 }
 
 .about-platforms-card {
   background: var(--gh-card-bg, #fff);
-  border: 1px solid var(--gh-border, #e5e7eb);
+  border: 1px solid rgba(0, 0, 0, 0.04);
   border-radius: 16px;
   padding: 24px;
   margin-bottom: 32px;
   position: relative;
   overflow: hidden;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.02);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.02);
+}
+
+html[data-theme="dark"] .about-platforms-card {
+  border-color: rgba(255, 255, 255, 0.05);
 }
 
 .about-platforms-card::before {
@@ -1127,49 +1403,75 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 40px;
-  height: 32px;
-  padding: 0 12px;
-  border-radius: 999px;
-  background: linear-gradient(135deg, #4f46e5 0%, #3b82f6 100%);
-  color: #ffffff;
-  font-size: 14px;
-  font-weight: 700;
+  min-width: 48px;
+  height: 36px;
+  padding: 0 16px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, rgba(236, 72, 153, 0.1) 0%, rgba(139, 92, 246, 0.1) 100%);
+  color: #d946ef;
+  font-family:
+    ui-rounded,
+    "SF Pro Rounded",
+    system-ui,
+    -apple-system,
+    sans-serif;
+  font-size: 16px;
+  font-weight: 800;
   flex-shrink: 0;
-  border: none;
-  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+  border: 1px solid rgba(219, 39, 119, 0.2);
+  box-shadow:
+    inset 0 2px 4px rgba(255, 255, 255, 0.3),
+    0 4px 12px rgba(219, 39, 119, 0.1);
+  position: relative;
+  overflow: hidden;
+}
+
+@media (prefers-color-scheme: dark) {
+  .about-platforms-count {
+    background: linear-gradient(
+      135deg,
+      rgba(244, 114, 182, 0.15) 0%,
+      rgba(167, 139, 250, 0.15) 100%
+    );
+    color: #f0abfc;
+    border-color: rgba(236, 72, 153, 0.3);
+    box-shadow:
+      inset 0 2px 4px rgba(255, 255, 255, 0.05),
+      0 4px 12px rgba(219, 39, 119, 0.2);
+  }
 }
 
 .about-platforms-grid {
   display: flex;
   flex-wrap: wrap;
-  gap: 10px;
+  gap: 12px;
+  justify-content: center;
 }
 
 .about-platform-chip {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  padding: 8px 14px;
-  border-radius: 999px;
+  padding: 8px 16px;
+  border-radius: 12px;
   background: var(--gh-bg-secondary, #f9fafb);
   border: 1px solid var(--gh-border, #e5e7eb);
   color: var(--gh-text, #374151);
   font-size: 13px;
-  font-weight: 500;
+  font-weight: 600;
   line-height: 1;
-  transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
-  cursor: pointer;
   text-decoration: none;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.02);
+  white-space: nowrap;
 }
 
 .about-platform-chip:hover {
-  transform: translateY(-2px) scale(1.02);
-  background: var(--gh-bg, #ffffff);
-  border-color: var(--gh-primary, #4285f4);
-  color: var(--gh-primary, #4285f4);
-  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.06);
+  background: var(--gh-bg, #fff);
+  border-color: rgba(139, 92, 246, 0.4);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(139, 92, 246, 0.1);
+  color: var(--gh-primary, #6d28d9);
 }
 
 .about-platform-chip-icon {
@@ -1187,28 +1489,35 @@
 /* Link Grid */
 .about-links-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-  gap: 16px;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 20px;
   margin-bottom: 32px;
 }
 
 .about-link-card {
   background: var(--gh-card-bg, #fff);
-  border: 1px solid var(--gh-border, #e5e7eb);
-  border-radius: 12px;
-  padding: 20px;
+  border: 1px solid rgba(0, 0, 0, 0.04);
+  border-radius: 16px;
+  padding: 24px;
   display: flex;
   flex-direction: column;
-  align-items: center;
-  text-align: center;
-  transition: all 0.2s ease;
+  align-items: flex-start;
+  text-align: left;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   text-decoration: none;
+  position: relative;
+  overflow: hidden;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.02);
+}
+
+html[data-theme="dark"] .about-link-card {
+  border-color: rgba(255, 255, 255, 0.05);
 }
 
 .about-link-card:hover {
-  border-color: var(--gh-primary, #4285f4);
-  transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+  border-color: var(--gh-border-hover, #d1d5db);
+  transform: translateY(-4px);
+  box-shadow: 0 12px 24px rgba(0, 0, 0, 0.06);
 }
 
 .about-link-header {
@@ -1219,53 +1528,77 @@
   font-size: 16px;
   font-weight: 600;
   color: var(--gh-text);
-  margin-bottom: 8px;
+  margin-bottom: 12px;
   width: 100%;
 }
 
 .about-link-desc {
   font-size: 13px;
+  line-height: 1.5;
   color: var(--gh-text-secondary);
-  margin-bottom: 16px;
+  margin-bottom: 20px;
   flex: 1;
 }
 
 .about-link-btn {
   align-self: center;
-  padding: 6px 16px;
-  background: var(--gh-primary, #4285f4);
-  color: #fff;
-  border-radius: 6px;
+  padding: 8px 20px;
+  background: transparent;
+  color: var(--card-color, var(--gh-primary));
+  border: 1px solid var(--card-color, var(--gh-primary));
+  border-radius: 8px;
   font-size: 13px;
-  font-weight: 500;
-  border: none;
+  font-weight: 600;
   cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  letter-spacing: 0.2px;
+}
+
+html[data-theme="dark"] .about-link-card:not(.discord-card):not(.kofi-card) .about-link-btn {
+  /* Override default dark text color on specific cards so it's readable in dark mode */
+  color: var(--gh-text);
+  border-color: var(--gh-border);
+}
+html[data-theme="dark"] .about-link-card:not(.discord-card):not(.kofi-card):hover .about-link-btn {
+  color: #111827;
+}
+
+.about-link-card:hover .about-link-btn {
+  /* On hover, fill with solid color */
+  background: var(--card-color, var(--gh-primary));
+  color: #fff;
+  border-color: transparent;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
 }
 
 /* Star Button Special Style - Sunset Gold Pill */
 .about-star-btn {
-  /* Warm Sunset Gradient */
-  background: linear-gradient(135deg, #ffc107 0%, #ff9800 100%) !important;
-  color: white !important;
-  font-weight: 600;
-  border: none !important;
-  /* Pill Shape */
-  border-radius: 24px !important;
+  /* Warm Sunset Gold as ghost button default */
+  background: transparent !important;
+  color: #ff9800 !important;
+  border: 1px solid #ff9800 !important;
+  border-radius: 20px !important;
   padding: 8px 24px !important;
-  /* Soft Colored Shadow */
-  box-shadow: 0 4px 12px rgba(255, 152, 0, 0.3);
+  font-weight: 600;
   position: relative;
   overflow: hidden;
   transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
-  /* Fix alignment */
   align-self: center !important;
-  margin-top: 4px;
+  margin-top: auto; /* Push to bottom */
 }
 
-.about-star-btn:hover {
+/* Hover State - Solia Gold Gradient with glow */
+.about-link-card:hover .about-star-btn {
+  background: linear-gradient(135deg, #ffc107 0%, #ff9800 100%) !important;
+  color: white !important;
+  border-color: transparent !important;
   transform: translateY(-2px) scale(1.05);
   box-shadow: 0 8px 20px rgba(255, 152, 0, 0.45);
-  filter: brightness(1.05);
 }
 
 .about-star-btn:active {
@@ -1379,25 +1712,7 @@ html[data-theme="dark"] .about-privacy-banner {
   line-height: 1.5;
 }
 
-/* 渐变色 Slogan */
-.about-slogan {
-  font-size: 18px;
-  font-weight: 700;
-  /* margin-bottom: 24px; Handled by parent container */
-  background: var(--gh-brand-gradient, linear-gradient(135deg, #4285f4 0%, #a855f7 100%));
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-  display: inline-block;
-}
-
-/* 确保深色模式下 Slogan 清晰可见 */
-html[data-theme="dark"] .about-slogan {
-  background: linear-gradient(135deg, #8ab4f8 0%, #81c995 100%);
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
-}
+/* 渐变色 Slogan（已废弃，由 .about-slogan-badge 替代） */
 
 @media (max-width: 640px) {
   .about-platforms-header {
@@ -1509,26 +1824,40 @@ html[data-theme="dark"] .about-slogan {
 .settings-search-fuzzy-toggle {
   flex-shrink: 0;
   height: 24px;
-  padding: 0 8px;
+  padding: 0 10px;
   border-radius: 999px;
   border: 1px solid var(--gh-border, #e5e7eb);
   background: var(--gh-bg-secondary, #f9fafb);
   color: var(--gh-text-secondary, #6b7280);
   font-size: 11px;
-  font-weight: 600;
+  font-weight: 500;
   line-height: 1;
   cursor: pointer;
   transition:
-    color 0.2s ease,
-    border-color 0.2s ease,
-    background-color 0.2s ease;
+    color 0.15s ease,
+    border-color 0.15s ease,
+    background 0.15s ease,
+    box-shadow 0.15s ease,
+    font-weight 0s;
 }
 
-.settings-search-fuzzy-toggle:hover,
+.settings-search-fuzzy-toggle:hover:not(.active) {
+  color: var(--gh-primary, #4285f4);
+  border-color: color-mix(in srgb, var(--gh-primary, #4285f4) 35%, transparent);
+  background: color-mix(in srgb, var(--gh-primary, #4285f4) 7%, var(--gh-bg-secondary, #f9fafb));
+}
+
 .settings-search-fuzzy-toggle.active {
-  color: var(--gh-primary, #2563eb);
-  border-color: rgba(37, 99, 235, 0.28);
-  background: rgba(37, 99, 235, 0.08);
+  color: var(--gh-primary, #4285f4);
+  font-weight: 700;
+  background: color-mix(in srgb, var(--gh-primary, #4285f4) 13%, var(--gh-bg-secondary, #f9fafb));
+  border-color: var(--gh-primary, #4285f4);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--gh-primary, #4285f4) 30%, transparent);
+}
+
+.settings-search-fuzzy-toggle.active:hover {
+  background: color-mix(in srgb, var(--gh-primary, #4285f4) 20%, var(--gh-bg-secondary, #f9fafb));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--gh-primary, #4285f4) 45%, transparent);
 }
 
 .settings-search-help {

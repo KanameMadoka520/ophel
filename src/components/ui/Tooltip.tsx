@@ -8,6 +8,30 @@ const DEFAULT_TOOLTIP_MAX_WIDTH = 260
 const DEFAULT_TOOLTIP_GAP = 8
 const DEFAULT_VIEWPORT_PADDING = 10
 
+// 切换标签页/窗口回来时浏览器会自动恢复焦点到上次聚焦的元素，
+// 触发 onFocus → showTooltip，导致 tooltip 凭空出现。
+// 用模块级 flag 标记“刚从 window.focus 恢复”，在此期间屏蔽 element focus 事件。
+// 广播防重：用 window 属性标记，避免 HMR/多次导入时重复注册。
+function isFocusFromWindowRestoration(): boolean {
+  return window.__ophelTooltipSuppressFocusFromWindowRestoration__ === true
+}
+
+;(function registerWindowFocusSuppressionListener() {
+  if (typeof window === "undefined") return
+  const win = window
+  if (typeof win.__ophelTooltipSuppressFocusFromWindowRestoration__ !== "boolean") {
+    win.__ophelTooltipSuppressFocusFromWindowRestoration__ = false
+  }
+  if (win.__ophelTooltipWindowFocusListenerRegistered__) return
+  win.__ophelTooltipWindowFocusListenerRegistered__ = true
+  window.addEventListener("focus", () => {
+    window.__ophelTooltipSuppressFocusFromWindowRestoration__ = true
+    requestAnimationFrame(() => {
+      window.__ophelTooltipSuppressFocusFromWindowRestoration__ = false
+    })
+  })
+})()
+
 export const GLOBAL_TOOLTIP_STYLE_TEXT = `
   .ophel-tooltip {
     background-color: rgba(30, 30, 35, 0.95);
@@ -346,6 +370,7 @@ export const Tooltip: React.FC<TooltipProps> = ({
   const [isVisible, setIsVisible] = useState(false)
   const [position, setPosition] = useState<TooltipCoordinates>({ top: 0, left: 0 })
   const [isMeasuring, setIsMeasuring] = useState(false)
+  const [hasPendingTimer, setHasPendingTimer] = useState(false)
   const [portalContainer, setPortalContainer] = useState<Element | DocumentFragment | null>(null)
 
   const triggerRef = useRef<HTMLDivElement>(null)
@@ -361,6 +386,7 @@ export const Tooltip: React.FC<TooltipProps> = ({
     }
     setIsVisible(false)
     setIsMeasuring(false)
+    setHasPendingTimer(false)
   }, [])
 
   const showTooltip = useCallback(() => {
@@ -369,12 +395,24 @@ export const Tooltip: React.FC<TooltipProps> = ({
     if (timerRef.current) {
       clearTimeout(timerRef.current)
     }
-
+    setHasPendingTimer(true)
     timerRef.current = setTimeout(() => {
-      setIsVisible(true)
-      setIsMeasuring(true)
+      timerRef.current = null
+      setHasPendingTimer(false)
+      // 二次检查：timer 到期时确认页面仍在前台且仍在 hover/focus 状态
+      if (!document.hidden && isHoveringRef.current) {
+        setIsVisible(true)
+        setIsMeasuring(true)
+      }
     }, delay)
   }, [delay, disabled])
+
+  // 针对切标签页/窗口回来时浏览器自动恢复焦点的场景，
+  // 屏蔽由页面恢复焦点触发的 showTooltip（非用户主动键盘导航）
+  const showTooltipFromFocus = useCallback(() => {
+    if (isFocusFromWindowRestoration()) return
+    showTooltip()
+  }, [showTooltip])
 
   const updatePosition = useCallback(() => {
     const triggerRect = triggerRef.current?.getBoundingClientRect()
@@ -410,24 +448,33 @@ export const Tooltip: React.FC<TooltipProps> = ({
       updatePosition()
     }
 
+    window.addEventListener("scroll", handleWindowChange, true)
+    window.addEventListener("resize", handleWindowChange)
+
+    return () => {
+      window.removeEventListener("scroll", handleWindowChange, true)
+      window.removeEventListener("resize", handleWindowChange)
+    }
+  }, [isMeasuring, isVisible, updatePosition])
+
+  // 只在有 pending timer 或 tooltip 可见时才注册监听器，避免多实例常驻导致不必要开销
+  useEffect(() => {
+    if (!hasPendingTimer && !isVisible && !isMeasuring) return
+
     const handleVisibilityChange = () => {
       if (document.hidden) {
         hideTooltip()
       }
     }
 
-    window.addEventListener("scroll", handleWindowChange, true)
-    window.addEventListener("resize", handleWindowChange)
     window.addEventListener("blur", hideTooltip)
     document.addEventListener("visibilitychange", handleVisibilityChange)
 
     return () => {
-      window.removeEventListener("scroll", handleWindowChange, true)
-      window.removeEventListener("resize", handleWindowChange)
       window.removeEventListener("blur", hideTooltip)
       document.removeEventListener("visibilitychange", handleVisibilityChange)
     }
-  }, [hideTooltip, isMeasuring, isVisible, updatePosition])
+  }, [hasPendingTimer, hideTooltip, isMeasuring, isVisible])
 
   useEffect(() => {
     return () => {
@@ -442,9 +489,14 @@ export const Tooltip: React.FC<TooltipProps> = ({
       if (timerRef.current) {
         clearTimeout(timerRef.current)
       }
+      setHasPendingTimer(true)
       timerRef.current = setTimeout(() => {
-        setIsVisible(true)
-        setIsMeasuring(true)
+        timerRef.current = null
+        setHasPendingTimer(false)
+        if (!document.hidden && isHoveringRef.current) {
+          setIsVisible(true)
+          setIsMeasuring(true)
+        }
       }, delay)
     }
   }, [delay, disabled, hideTooltip])
@@ -455,7 +507,7 @@ export const Tooltip: React.FC<TooltipProps> = ({
       className={`ophel-tooltip-trigger ${className} ${triggerClassName}`}
       onMouseEnter={showTooltip}
       onMouseLeave={hideTooltip}
-      onFocus={showTooltip}
+      onFocus={showTooltipFromFocus}
       onBlur={hideTooltip}
       style={{ display: "inline-flex", ...triggerStyle }}>
       {children}

@@ -15,8 +15,8 @@ export const useGlobalSearchPreview = ({
 }: UseGlobalSearchPreviewParams) => {
   const [globalSearchPromptPreview, setGlobalSearchPromptPreview] =
     useState<GlobalSearchPromptPreviewState | null>(null)
-  const promptPreviewTimerRef = useRef<NodeJS.Timeout | null>(null)
-  const promptPreviewHideTimerRef = useRef<NodeJS.Timeout | null>(null)
+  const promptPreviewTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const promptPreviewHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const keyboardPreviewTargetRef = useRef<string | null>(null)
 
   const clearPromptPreviewTimer = useCallback(() => {
@@ -33,6 +33,13 @@ export const useGlobalSearchPreview = ({
     }
   }, [])
 
+  const escapeAttrValue = useCallback((value: string): string => {
+    if (typeof CSS !== "undefined" && typeof CSS.escape === "function") {
+      return CSS.escape(value)
+    }
+    return JSON.stringify(value).slice(1, -1)
+  }, [])
+
   const getGlobalSearchPromptAnchorElement = useCallback(
     (itemId: string) => {
       const container = settingsSearchResultsRef.current
@@ -40,16 +47,11 @@ export const useGlobalSearchPreview = ({
         return null
       }
 
-      const candidates = container.querySelectorAll<HTMLElement>("[data-global-search-item-id]")
-      for (const candidate of candidates) {
-        if (candidate.dataset.globalSearchItemId === itemId) {
-          return candidate
-        }
-      }
-
-      return null
+      return container.querySelector<HTMLElement>(
+        `[data-global-search-item-id="${escapeAttrValue(itemId)}"]`,
+      )
     },
-    [settingsSearchResultsRef],
+    [escapeAttrValue, settingsSearchResultsRef],
   )
 
   const hideGlobalSearchPromptPreview = useCallback(() => {

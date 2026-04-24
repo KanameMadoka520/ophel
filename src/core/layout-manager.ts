@@ -44,7 +44,7 @@ export class LayoutManager {
   private cleanModeEnabled = false
 
   private processedShadowRoots = new WeakSet<ShadowRoot>()
-  private shadowCheckInterval: NodeJS.Timeout | null = null
+  private shadowCheckInterval: ReturnType<typeof setTimeout> | null = null
 
   constructor(siteAdapter: SiteAdapter, pageWidthConfig: PageWidthConfig) {
     this.siteAdapter = siteAdapter
@@ -355,7 +355,7 @@ export class LayoutManager {
           display: inline-flex;
           align-items: center;
           gap: 12px;
-          font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+          font-family: "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "Apple SD Gothic Neo", "Malgun Gothic", "PingFang SC", "Microsoft YaHei", sans-serif;
           font-size: 14px;
           font-weight: 500;
           line-height: 1;

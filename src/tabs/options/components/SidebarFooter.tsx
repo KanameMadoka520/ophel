@@ -126,8 +126,6 @@ export const SidebarFooter = ({ siteId = "_default" }: { siteId?: string }) => {
     }
 
     const measureState = () => {
-      const prevState = themeSegmentStateRef.current
-
       const normalFits = fitsContainer("normal")
       let nextState: "normal" | "compact" | "icon" = "normal"
       if (!normalFits) {
@@ -135,7 +133,9 @@ export const SidebarFooter = ({ siteId = "_default" }: { siteId?: string }) => {
         nextState = compactFits ? "compact" : "icon"
       }
 
-      applyStateClass(prevState)
+      // 测量完毕后立即将正确状态同步到 DOM（不等 React 异步 setState）
+      // 原来是 applyStateClass(prevState)，会导致 DOM 短暂停留在溢出状态
+      applyStateClass(nextState)
       if (nextState !== themeSegmentStateRef.current) {
         setThemeSegmentState(nextState)
       }
@@ -327,12 +327,16 @@ export const SidebarFooter = ({ siteId = "_default" }: { siteId?: string }) => {
          }
 
         .lang-link.active {
-          color: var(--gh-text, #111827);
-          font-weight: 600;
+          color: var(--gh-primary, #4285f4);
+          font-weight: 700;
+          background: var(--gh-bg, #ffffff);
+          box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12), 0 0 0 1px rgba(0, 0, 0, 0.04);
         }
 
         :host-context([data-gh-mode="dark"]) .lang-link.active {
-           color: #f9fafb;
+          color: var(--gh-primary, #7cb3ff);
+          background: rgba(255, 255, 255, 0.12);
+          box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
         }
 
         .lang-divider {

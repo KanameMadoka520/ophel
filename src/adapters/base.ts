@@ -877,6 +877,17 @@ export abstract class SiteAdapter {
     return ""
   }
 
+  /**
+   * 返回 MutationObserver 应观察的目标元素。
+   * 默认使用 getResponseContainerSelector() 找到的容器，找不到时返回 null（fallback 到 document.body）。
+   * 各适配器可覆盖以返回更精确的容器，从而减少 AI 生成时的无效回调。
+   */
+  getObserveTarget(): Element | null {
+    const selector = this.getResponseContainerSelector()
+    if (!selector) return null
+    return document.querySelector(selector)
+  }
+
   /** 获取聊天内容元素的选择器列表 */
   getChatContentSelectors(): string[] {
     return []
@@ -1122,6 +1133,18 @@ export abstract class SiteAdapter {
     }
 
     return this.findElementByHeading(item.level, item.text)
+  }
+
+  /**
+   * 将大纲目标元素滚动到可见区域。
+   * 默认使用 scrollIntoView；子类可覆盖以避免外层容器被意外滚动（如 Shadow DOM 场景）。
+   */
+  scrollToOutlineTarget(element: HTMLElement): void {
+    element.scrollIntoView({
+      behavior: "instant",
+      block: "start",
+      __bypassLock: true,
+    } as any)
   }
 
   /** 是否支持滚动锁定功能 */

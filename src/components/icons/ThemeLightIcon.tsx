@@ -21,11 +21,11 @@ export const ThemeLightIcon: React.FC<IconProps> = ({
     height={size}
     fill="none"
     stroke={color}
-    strokeWidth="2"
+    strokeWidth="1.5"
     strokeLinecap="round"
     strokeLinejoin="round"
     className={className}
-    style={{ display: "block" }}>
+    style={{ display: "block", width: size, height: size }}>
     {/* 太阳中心 */}
     <circle cx="12" cy="12" r="4" />
     {/* 光线 */}

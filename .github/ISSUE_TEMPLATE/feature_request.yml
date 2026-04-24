@@ -1,5 +1,5 @@
 name: ✨ 功能需求 Feature Request
-description: 提出新功能需求或改进建议 | Suggest an feature or improvement
+description: 提出新功能需求或改进建议 | Suggest a feature or improvement
 title: "[Feature]: "
 labels: ["enhancement"]
 body:
@@ -10,19 +10,18 @@ body:
         Thanks for your suggestion! If Ophel helps you, please give it a Star 🌟（Star helps support the project）
 
         > [!NOTE]
-        > - ⚠️ 本项目由个人维护，**功能请求不等于一定会实现**。
-        > - ⚠️ 功能优先级会综合评估项目整体情况。
-        > - ⚠️ **情绪化或命令式表达**不会提高需求优先级。
-        >
-        > 请确认你理解以上说明后再提交 Issue。
+        > - 本项目由个人维护，**功能请求不保证一定实现**。
+        >   This project is personally maintained — feature requests are not guaranteed to be implemented.
+        > - 功能优先级会根据项目整体情况综合评估。
+        >   Feature priority is evaluated based on the overall project status.
+        > - 提交前请确认您使用的是 Ophel **最新版本**，您需要的功能可能已在新版中实现。
+        >   Please verify you are using the **latest version** of Ophel before submitting — the feature you need may already exist.
 
   - type: checkboxes
     id: checklist
     attributes:
       label: 前置检查 | Essential Checklist
       options:
-        - label: 我已阅读并理解项目的功能请求与边界说明 | I have read and understood the project's instructions
-          required: true
         - label: 我已在 Issue 中搜索过类似需求，确认这不是一个重复提议 | I have searched for existing requests and confirmed this is not a duplicate
           required: true
         - label: 我已为项目点了 Star 🌟 | I have starred the project 🌟
@@ -79,7 +78,7 @@ body:
     attributes:
       label: 问题背景 | Problem or Use Case
       description: 您希望解决什么问题？ | What problem are you trying to solve?
-      placeholder: 我在使用...功能时，经常遇到...的问题 | I'm always frustrated when...
+      placeholder: 我在使用...功能时，经常遇到...的问题 | When using [...], I find that...
     validations:
       required: true
 

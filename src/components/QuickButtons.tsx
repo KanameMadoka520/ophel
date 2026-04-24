@@ -64,6 +64,24 @@ const readViewportSize = (): ViewportSize => ({
   height: window.visualViewport?.height ?? window.innerHeight,
 })
 
+const areGroupPositionsEqual = (
+  left: GroupPosition | null | undefined,
+  right: GroupPosition | null | undefined,
+): boolean => {
+  if (!left || !right) return left === right
+  return left.xRatio === right.xRatio && left.yRatio === right.yRatio
+}
+
+// 交互常量（module-level 以避免 react-hooks/exhaustive-deps 噪音）
+const DRAG_LONG_PRESS_MS = 220
+const DRAG_THRESHOLD_PX = 6
+const DRAG_PADDING_PX = 8
+const POSITION_PERSIST_DEBOUNCE_MS = 220
+const PROXIMITY_RADIUS_PX = 150
+const PROXIMITY_RETAIN_MS = 3000
+const ACTIVITY_PROTECT_MS = 4000
+const LEAVE_WINDOW_RETAIN_MS = 1500
+
 export const QuickButtons: React.FC<QuickButtonsProps> = ({
   isPanelOpen,
   onPanelToggle,
@@ -108,11 +126,7 @@ export const QuickButtons: React.FC<QuickButtonsProps> = ({
     resolvedThemeMode === "light"
       ? siteTheme.lightStyleId || "google-gradient"
       : siteTheme.darkStyleId || "classic-dark"
-  const panelSparkleColor = currentThemeStyleId === "google-gradient" ? "currentColor" : "brand"
-
-  const DRAG_LONG_PRESS_MS = 150
-  const DRAG_THRESHOLD_PX = 6
-  const DRAG_PADDING_PX = 8
+  const panelSparkleColor = resolvedThemeMode === "dark" ? "brand" : "currentColor"
 
   // 工具菜单状态
   const groupRef = useRef<HTMLDivElement>(null)
@@ -137,6 +151,7 @@ export const QuickButtons: React.FC<QuickButtonsProps> = ({
   const [isDragging, setIsDragging] = useState(false)
   const [isPressing, setIsPressing] = useState(false)
   const groupPositionRef = useRef<GroupPosition | null>(persistedGroupPosition)
+  const lastPersistedGroupPositionRef = useRef<GroupPosition | null>(persistedGroupPosition)
   const groupMetricsRef = useRef<GroupMetrics>({ width: 0, height: 0 })
   const [defaultTopPx, setDefaultTopPx] = useState<number | null>(null)
   const defaultTopPxRef = useRef<number | null>(null)
@@ -147,72 +162,123 @@ export const QuickButtons: React.FC<QuickButtonsProps> = ({
   const draggingRef = useRef(false)
   const pointerIdRef = useRef<number | null>(null)
   const suppressClickRef = useRef(false)
+  const positionPersistTimerRef = useRef<number | null>(null)
 
   // 锚点状态（使用全局存储）
   const anchorPosition = useSyncExternalStore(anchorStore.subscribe, anchorStore.getSnapshot)
   const hasAnchor = anchorPosition !== null
+  const [anchorTapId, setAnchorTapId] = useState(0)
+  // prefers-reduced-motion 下 animation 为 none，不会触发 animationend；用 timeout 充当兜底重置
+  useEffect(() => {
+    if (anchorTapId === 0) return
+    const timer = setTimeout(() => setAnchorTapId(0), 400)
+    return () => clearTimeout(timer)
+  }, [anchorTapId])
 
   // 悬浮隐藏状态
   const [_isHovered, setIsHovered] = useState(false)
   // groupRef moved to top
 
-  // 闲置状态 (用于液态折叠)
-  const [isIdle, setIsIdle] = useState(false)
-  const idleTimerRef = useRef<number | null>(null)
+  // 局部失焦状态 (用于液态折叠)
+  const [isProximate, setIsProximate] = useState(true)
+  const activityTimerRef = useRef<number | null>(null)
+  const isActiveRef = useRef(false)
 
-  const resetIdleTimer = useCallback(() => {
-    setIsIdle(false)
-    if (idleTimerRef.current) {
-      window.clearTimeout(idleTimerRef.current)
+  const retainActivity = useCallback((durationMs: number = PROXIMITY_RETAIN_MS) => {
+    setIsProximate(true)
+    if (activityTimerRef.current !== null) {
+      window.clearTimeout(activityTimerRef.current)
     }
-    idleTimerRef.current = window.setTimeout(() => {
-      setIsIdle(true)
-    }, 5000)
+    activityTimerRef.current = window.setTimeout(() => {
+      setIsProximate(false)
+    }, durationMs)
   }, [])
 
-  useEffect(() => {
-    const handleActivity = (e: MouseEvent | KeyboardEvent) => {
-      if (e.type === "keydown") {
-        resetIdleTimer()
-        return
-      }
+  // 仅缩短已有的收缩倒计时，不唤醒已收缩态（避免 mouseleave / visibilitychange 产生闪烁）
+  const shortenCountdown = useCallback((durationMs: number) => {
+    if (activityTimerRef.current !== null) {
+      window.clearTimeout(activityTimerRef.current)
+      activityTimerRef.current = window.setTimeout(() => {
+        setIsProximate(false)
+      }, durationMs)
+    }
+  }, [])
 
-      // Proximity Check / 引力场检测
-      const mouseEvent = e as MouseEvent
-      if (groupRef.current) {
+  // 监听组件活跃状态：包括拖拽、按压、面板展开、工具菜单打开
+  useEffect(() => {
+    const isActive = isDragging || isPressing || isPanelOpen || isToolsMenuOpen
+    isActiveRef.current = isActive
+    if (isActive) {
+      setIsProximate(true)
+      if (activityTimerRef.current !== null) {
+        window.clearTimeout(activityTimerRef.current)
+        activityTimerRef.current = null
+      }
+    } else {
+      // 从活跃变成不活跃时，给保护时间（尤其是刚拖拽完）
+      retainActivity(ACTIVITY_PROTECT_MS)
+    }
+  }, [isDragging, isPressing, isPanelOpen, isToolsMenuOpen, retainActivity])
+
+  useEffect(() => {
+    let rafId: number | null = null
+
+    const handleMouseMove = (e: MouseEvent) => {
+      if (rafId !== null) return
+
+      rafId = requestAnimationFrame(() => {
+        rafId = null
+        if (!groupRef.current || isActiveRef.current) return
+
         const rect = groupRef.current.getBoundingClientRect()
         // 计算鼠标到组件包围盒边界的最小距离
-        const dx = Math.max(rect.left - mouseEvent.clientX, 0, mouseEvent.clientX - rect.right)
-        const dy = Math.max(rect.top - mouseEvent.clientY, 0, mouseEvent.clientY - rect.bottom)
+        const dx = Math.max(rect.left - e.clientX, 0, e.clientX - rect.right)
+        const dy = Math.max(rect.top - e.clientY, 0, e.clientY - rect.bottom)
         const distance = Math.sqrt(dx * dx + dy * dy)
 
-        const PROXIMITY_RADIUS = 150 // 改为 150px 的引力场
-
-        if (distance <= PROXIMITY_RADIUS) {
-          // 在 150px 引力场内，瞬间唤醒并重置倒计时
-          resetIdleTimer()
-        } else {
-          // 在引力场外：我们甚至可以不重置 idleTimer，这样如果一直在别处读文章，5秒后它照样收缩。
-          // 或者让它立即加速收缩（如果需要），这里我们保守一点，只在刚移出时维持正常倒计时，但不阻止它进入 Idle。
+        if (distance <= PROXIMITY_RADIUS_PX) {
+          // 在引力场内：保持唤醒并重置收缩倒计时
+          retainActivity(PROXIMITY_RETAIN_MS)
         }
-      } else {
-        resetIdleTimer()
+      })
+    }
+
+    const handleMouseLeaveWindow = () => {
+      // 鼠标离开窗口时，仅缩短已有倒计时，不唤醒已收缩态
+      shortenCountdown(LEAVE_WINDOW_RETAIN_MS)
+    }
+
+    const handleVisibilityChange = () => {
+      // 标签页切换或窗口最小化时，mouseleave 不触发，用 visibilitychange 兜底
+      if (document.hidden) {
+        shortenCountdown(LEAVE_WINDOW_RETAIN_MS)
       }
     }
 
-    document.addEventListener("mousemove", handleActivity, { passive: true })
-    document.addEventListener("keydown", handleActivity, { passive: true })
-    resetIdleTimer() // 初始唤醒
+    document.addEventListener("mousemove", handleMouseMove, { passive: true })
+    document.addEventListener("mouseleave", handleMouseLeaveWindow, { passive: true })
+    document.addEventListener("visibilitychange", handleVisibilityChange)
+
+    // 初始化时维持展开
+    retainActivity(PROXIMITY_RETAIN_MS)
 
     return () => {
-      document.removeEventListener("mousemove", handleActivity)
-      document.removeEventListener("keydown", handleActivity)
-      if (idleTimerRef.current) window.clearTimeout(idleTimerRef.current)
+      document.removeEventListener("mousemove", handleMouseMove)
+      document.removeEventListener("mouseleave", handleMouseLeaveWindow)
+      document.removeEventListener("visibilitychange", handleVisibilityChange)
+      if (rafId !== null) cancelAnimationFrame(rafId)
+      if (activityTimerRef.current !== null) {
+        window.clearTimeout(activityTimerRef.current)
+      }
     }
-  }, [resetIdleTimer])
+  }, [retainActivity, shortenCountdown])
 
   const isLiquidCollapsed =
-    isIdle && !_isHovered && !isToolsMenuOpen && !isPanelOpen && !isDragging && !isPressing
+    !isProximate && !_isHovered && !isToolsMenuOpen && !isPanelOpen && !isDragging && !isPressing
+
+  // 用 ref 追踪 isLiquidCollapsed，避免 ResizeObserver 的 useLayoutEffect 因它变化而反复 teardown/recreate
+  const isLiquidCollapsedRef = useRef(isLiquidCollapsed)
+  isLiquidCollapsedRef.current = isLiquidCollapsed
 
   // 跟踪是否处于 Flutter 模式（图文并茂）
   const [_isFlutterMode, setIsFlutterMode] = useState(false)
@@ -222,11 +288,73 @@ export const QuickButtons: React.FC<QuickButtonsProps> = ({
   const [loadingText, setLoadingText] = useState("")
   const abortLoadingRef = useRef(false)
 
+  const clearPositionPersistTimer = useCallback(() => {
+    if (positionPersistTimerRef.current !== null) {
+      window.clearTimeout(positionPersistTimerRef.current)
+      positionPersistTimerRef.current = null
+    }
+  }, [])
+
+  const persistGroupPosition = useCallback(
+    (position: GroupPosition | null | undefined) => {
+      const nextPosition = position ?? null
+      clearPositionPersistTimer()
+
+      if (areGroupPositionsEqual(lastPersistedGroupPositionRef.current, nextPosition)) {
+        return
+      }
+
+      lastPersistedGroupPositionRef.current = nextPosition
+      updateNestedSetting("quickButtons", "position", nextPosition || undefined)
+    },
+    [clearPositionPersistTimer, updateNestedSetting],
+  )
+
+  const scheduleGroupPositionPersist = useCallback(
+    (position: GroupPosition) => {
+      if (areGroupPositionsEqual(lastPersistedGroupPositionRef.current, position)) {
+        return
+      }
+
+      clearPositionPersistTimer()
+
+      const queuedPosition = { ...position }
+      positionPersistTimerRef.current = window.setTimeout(() => {
+        positionPersistTimerRef.current = null
+
+        if (areGroupPositionsEqual(lastPersistedGroupPositionRef.current, queuedPosition)) {
+          return
+        }
+
+        lastPersistedGroupPositionRef.current = queuedPosition
+        updateNestedSetting("quickButtons", "position", queuedPosition)
+      }, POSITION_PERSIST_DEBOUNCE_MS)
+    },
+    [POSITION_PERSIST_DEBOUNCE_MS, clearPositionPersistTimer, updateNestedSetting],
+  )
+
   useEffect(() => {
-    if (draggingRef.current) return
+    const persistedChanged = !areGroupPositionsEqual(
+      lastPersistedGroupPositionRef.current,
+      persistedGroupPosition,
+    )
+
+    if (persistedChanged) {
+      clearPositionPersistTimer()
+    }
+
+    lastPersistedGroupPositionRef.current = persistedGroupPosition
+
+    if (!persistedChanged || draggingRef.current) return
     groupPositionRef.current = persistedGroupPosition
     setGroupPosition(persistedGroupPosition)
-  }, [persistedGroupPosition])
+  }, [clearPositionPersistTimer, persistedGroupPosition])
+
+  useEffect(() => {
+    return () => {
+      clearPositionPersistTimer()
+    }
+  }, [clearPositionPersistTimer])
 
   useEffect(() => {
     if (persistedGroupPosition) {
@@ -316,6 +444,7 @@ export const QuickButtons: React.FC<QuickButtonsProps> = ({
       const rect = element.getBoundingClientRect()
       const nextMetrics = { width: rect.width, height: rect.height }
       const prevMetrics = groupMetricsRef.current
+      const isInitialMetricsSync = prevMetrics.width === 0 && prevMetrics.height === 0
       const metricsChanged =
         prevMetrics.width !== nextMetrics.width || prevMetrics.height !== nextMetrics.height
 
@@ -338,8 +467,16 @@ export const QuickButtons: React.FC<QuickButtonsProps> = ({
         return
       }
 
-      if (draggingRef.current) return
+      if (draggingRef.current || isInitialMetricsSync) {
+        // 首次挂载时，持久化位置仍按 0x0 尺寸参与了首帧定位。
+        // 这时如果直接用当前 rect 反推 ratio，会把这个“临时偏低”的像素位置写回，
+        // 导致刷新一次就下移一点。先只更新 metrics，让下一帧用真实尺寸重算位置。
+        return
+      }
 
+      // Metrics 变化（如 collapsed ↔ expanded 切换、液态收缩等）时，
+      // 从 DOM rect 反推 ratio 以保持 logo 视觉位置不变，但**不持久化**。
+      // 持久化仅在拖拽结束时进行，避免跨刷新的累积漂移。
       const nextPosition = toLogicalGroupPosition(rect.left, rect.top, viewport, nextMetrics)
       const prevPosition = groupPositionRef.current
 
@@ -349,6 +486,7 @@ export const QuickButtons: React.FC<QuickButtonsProps> = ({
       ) {
         groupPositionRef.current = nextPosition
         setGroupPosition(nextPosition)
+        // 注意：此处不调用 scheduleGroupPositionPersist()
       }
     }
 
@@ -444,6 +582,9 @@ export const QuickButtons: React.FC<QuickButtonsProps> = ({
   const handleAnchorClick = useCallback(async () => {
     const savedAnchor = anchorStore.get()
     if (savedAnchor === null) return
+
+    // 触发弹性动画
+    setAnchorTapId((id) => id + 1)
 
     // 获取当前位置
     const scrollInfo = await getScrollInfo(adapter)
@@ -549,8 +690,12 @@ export const QuickButtons: React.FC<QuickButtonsProps> = ({
     const isActive = isFloatingToolbarBtn ? isToolsMenuOpen : isZenModeActive
 
     // panel-only 按钮：面板展开时隐藏
+    // hideWhenPanelOpen 按钮：仅在悬浮模式且面板展开时隐藏（edge-snap 模式下始终显示，因为面板收在边缘不便操作）
     // 禁用的按钮：永远隐藏
-    const shouldHide = isDisabled || (isPanelOnly && isPanelOpen)
+    const isFloatingOpen =
+      isPanelOpen && (settings?.panel?.panelMode ?? "edge-snap") !== "edge-snap"
+    const shouldHide =
+      isDisabled || (isPanelOnly && isPanelOpen) || (def.hideWhenPanelOpen && isFloatingOpen)
     if (shouldHide) return null
 
     // 优先使用 IconComponent，否则用 emoji
@@ -584,12 +729,34 @@ export const QuickButtons: React.FC<QuickButtonsProps> = ({
         <button
           className={`quick-prompt-btn gh-interactive ${isPanelOnly ? "panel-only" : ""} ${isPanelBtn ? "panel-btn" : ""} ${isActive ? "active" : ""} ${isFloatingToolbarBtn ? "tools-trigger-btn" : ""} ${isZenModeBtn ? "zen-mode-btn" : ""}`}
           onClick={(e) => buttonActions[id]?.(e)}
+          data-tip-target={
+            id === "globalSearch"
+              ? "search-btn"
+              : id === "floatingToolbar"
+                ? "toolbar-btn"
+                : id === "shortcuts"
+                  ? "shortcuts-btn"
+                  : id === "settings"
+                    ? "settings-btn"
+                    : undefined
+          }
           style={{
             opacity: anchorDisabled ? 0.4 : 1,
             cursor: anchorDisabled ? "default" : "pointer",
           }}
           disabled={anchorDisabled}>
-          {icon}
+          {/* 锚点按鈕动画目标：key 递增保证每次点击都重播 */}
+          {isAnchorBtn ? (
+            <span
+              key={anchorTapId}
+              className={`anchor-tap-wrapper${anchorTapId > 0 ? " is-tapping" : ""}`}
+              onAnimationEnd={() => setAnchorTapId(0)}
+              style={{ display: "flex" }}>
+              {icon}
+            </span>
+          ) : (
+            icon
+          )}
         </button>
       </Tooltip>
     )
@@ -625,6 +792,11 @@ export const QuickButtons: React.FC<QuickButtonsProps> = ({
 
   // 构建按钮列表（包含智能分隔线逻辑）
   const renderButtonGroup = () => {
+    if (isLiquidCollapsed) {
+      // 液态收缩态只显示固定品牌 Logo，避免受到按钮排序影响。
+      return [renderButton("panel", COLLAPSED_BUTTON_DEFS.panel, true)]
+    }
+
     const elements: React.ReactNode[] = []
     const navigations = new Set(["scrollTop", "scrollBottom", "anchor", "manualAnchor"])
 
@@ -639,6 +811,9 @@ export const QuickButtons: React.FC<QuickButtonsProps> = ({
         if (!isEnabled) return null
 
         if (def.isPanelOnly && isPanelOpen) return null
+        const isFloatingOpen =
+          isPanelOpen && (settings?.panel?.panelMode ?? "edge-snap") !== "edge-snap"
+        if (def.hideWhenPanelOpen && isFloatingOpen) return null
 
         return {
           id: btnConfig.id,
@@ -854,6 +1029,7 @@ export const QuickButtons: React.FC<QuickButtonsProps> = ({
     dragOffsetRef.current = null
 
     if (draggingRef.current) {
+      clearPositionPersistTimer()
       draggingRef.current = false
       setIsDragging(false)
     }
@@ -866,7 +1042,7 @@ export const QuickButtons: React.FC<QuickButtonsProps> = ({
     pointerIdRef.current = null
 
     if (shouldPersist) {
-      updateNestedSetting("quickButtons", "position", groupPositionRef.current || undefined)
+      persistGroupPosition(groupPositionRef.current)
     }
   }
 
@@ -886,6 +1062,7 @@ export const QuickButtons: React.FC<QuickButtonsProps> = ({
     dragTimerRef.current = window.setTimeout(() => {
       if (!groupRef.current || pointerIdRef.current === null) return
 
+      clearPositionPersistTimer()
       groupRef.current.setPointerCapture(pointerIdRef.current)
       setIsPressing(false)
       draggingRef.current = true

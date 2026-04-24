@@ -1,22 +1,35 @@
-import React, { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react"
+import React, {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react"
 
 import type { SiteAdapter } from "~adapters/base"
 import {
   AnchorIcon,
   ConversationIcon,
+  FloatingModeIcon,
   MinimizeIcon,
   NewTabIcon,
   OutlineIcon,
   PromptIcon,
-  RefreshIcon,
+  // RefreshIcon, (刷新按钮已注释掉)
   ScrollBottomIcon,
   ScrollTopIcon,
   SettingsIcon,
+  SnapToEdgeIcon,
   ThemeDarkIcon,
   ThemeLightIcon,
 } from "~components/icons"
 import { SparkleIcon } from "~components/icons/SparkleIcon"
+import { MagicCodex } from "~components/MagicCodex"
 import { TAB_IDS } from "~constants"
+import { isMacOS } from "~constants/shortcuts"
+import { buildStructuredTips } from "~utils/build-structured-tips"
 import type { ConversationManager } from "~core/conversation-manager"
 import type { OutlineManager } from "~core/outline-manager"
 import type { PromptManager } from "~core/prompt-manager"
@@ -88,7 +101,7 @@ export const MainPanel: React.FC<MainPanelProps> = ({
     }
   }, [])
 
-  const { settings } = useSettingsStore()
+  const { settings, updateNestedSetting, setSettings } = useSettingsStore()
   const currentSettings = settings || DEFAULT_SETTINGS
   const tabOrder = currentSettings.features?.order || DEFAULT_SETTINGS.features.order
   const siteId = adapter?.getSiteId() || "_default"
@@ -98,23 +111,210 @@ export const MainPanel: React.FC<MainPanelProps> = ({
     resolvedThemeMode === "light"
       ? siteTheme.lightStyleId || "google-gradient"
       : siteTheme.darkStyleId || "classic-dark"
-  const panelSparkleColor = currentThemeStyleId === "google-gradient" ? "currentColor" : "brand"
+  // 浅色模式：所有彩色 header 背景 → currentColor（白色），永远可见
+  // 深色模式：深色纯色 header → 品牌渐变，美观且对比鲜明
+  const panelSparkleColor = resolvedThemeMode === "dark" ? "brand" : "currentColor"
   const currentCustomStyle = Array.isArray(currentSettings.theme?.customStyles)
     ? currentSettings.theme.customStyles.find((style) => style.id === currentThemeStyleId)
     : null
 
   // 拖拽功能（高性能版本：直接 DOM 操作，不触发 React 渲染）
   const { panelRef, headerRef } = useDraggable({
-    edgeSnapHide: currentSettings.panel?.edgeSnap,
+    edgeSnapHide: currentSettings.panel?.panelMode === "edge-snap",
     edgeSnapState, // 传递当前吸附状态
     snapThreshold: currentSettings.panel?.edgeSnapThreshold ?? 30,
     onEdgeSnap,
     onUnsnap,
   })
 
+  // 模式切换时重置面板 DOM 位置
+  // useDraggable 通过直接 DOM 操作设置了 left/top/right/transform，React 无法感知这些变化，
+  // 所以需要在模式切换时手动重置
+  const prevPanelModeRef = useRef(currentSettings.panel?.panelMode)
+  // 保存面板当前位置，用于 header 按钮触发的"原地固定"
+  const savedPeekingRectRef = useRef<DOMRect | null>(null)
+  // (Generic tips have moved to MagicCodex)
+  const pointerEventsTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // 使用 useLayoutEffect 保证在浏览器绘制前完成定位，避免模式切换时闪烁
+  useLayoutEffect(() => {
+    const currentMode = currentSettings.panel?.panelMode
+    const prevMode = prevPanelModeRef.current
+    prevPanelModeRef.current = currentMode
+
+    if (prevMode === currentMode || !panelRef.current) return
+
+    const panel = panelRef.current
+    panel.classList.remove("dragging")
+
+    if (prevMode === "edge-snap" && currentMode === "floating") {
+      // 恢复 pointer-events：floating→edge-snap 会临时禁用，
+      // 若快速切回 floating，cleanup 已取消恢复定时器，需在此处手动恢复
+      panel.removeAttribute("data-edge-snap-transitioning")
+      panel.style.pointerEvents = ""
+
+      const savedRect = savedPeekingRectRef.current
+      savedPeekingRectRef.current = null
+
+      // 优先使用 header 按钮保存的 peeking 位置，否则用面板当前 rect 原地固定
+      const fixRect = savedRect ?? panel.getBoundingClientRect()
+
+      // 判断面板是否处于 peeking 展开态（至少 50% 宽度在视口内），排除吸附收缩（胶囊条）
+      const visibleWidth = fixRect
+        ? Math.min(fixRect.right, window.innerWidth) - Math.max(fixRect.left, 0)
+        : 0
+      const isVisible = fixRect.width > 0 && visibleWidth >= fixRect.width * 0.5
+
+      if (isVisible) {
+        // 面板可见（peeking 展开）：原地固定，无论切换来源
+        panel.style.left = `${fixRect.left}px`
+        panel.style.top = `${fixRect.top}px`
+        panel.style.right = "auto"
+        panel.style.transform = "none"
+      } else {
+        // 面板不可见（吸附收缩态）：使用默认边距贴边展开，保留垂直位置（兜底）
+        const pos = currentSettings.panel?.defaultPosition ?? "right"
+        const edgeDist = currentSettings.panel?.defaultEdgeDistance ?? 0
+        const currentTop = fixRect ? fixRect.top : null
+
+        if (currentTop !== null && currentTop >= 0 && currentTop < window.innerHeight) {
+          panel.style.top = `${currentTop}px`
+          panel.style.transform = "none"
+        } else {
+          panel.style.top = "50%"
+          panel.style.transform = "translateY(-50%)"
+        }
+        if (pos === "left") {
+          panel.style.left = `${edgeDist}px`
+          panel.style.right = "auto"
+        } else {
+          panel.style.right = `${edgeDist}px`
+          panel.style.left = "auto"
+        }
+      }
+    } else if (prevMode === "floating" && currentMode === "edge-snap") {
+      // 悬浮 → 吸附：先添加 CSS 吸附类，确保 !important 定位在清除 inline style 前生效
+      const pos = currentSettings.panel?.defaultPosition ?? "right"
+      panel.classList.add(`edge-snapped-${pos}`)
+      panel.setAttribute("data-edge-snap-transitioning", "true")
+      panel.style.top = "50%"
+      panel.style.transform = "translateY(-50%)"
+      panel.style.left = ""
+      panel.style.right = ""
+      // 临时禁用 pointer-events，防止 CSS :hover 在鼠标仍在面板区域时阻止收缩动画
+      panel.style.pointerEvents = "none"
+      if (pointerEventsTimerRef.current) clearTimeout(pointerEventsTimerRef.current)
+      pointerEventsTimerRef.current = setTimeout(() => {
+        panel.removeAttribute("data-edge-snap-transitioning")
+        panel.style.pointerEvents = ""
+        pointerEventsTimerRef.current = null
+      }, 400)
+    }
+
+    return () => {
+      if (pointerEventsTimerRef.current) {
+        clearTimeout(pointerEventsTimerRef.current)
+        pointerEventsTimerRef.current = null
+      }
+      panel.removeAttribute("data-edge-snap-transitioning")
+      panel.style.pointerEvents = ""
+    }
+  }, [
+    currentSettings.panel?.panelMode,
+    currentSettings.panel?.defaultEdgeDistance,
+    currentSettings.panel?.defaultPosition,
+    panelRef,
+  ])
+
   // 计算默认位置样式
   const defaultPosition = currentSettings.panel?.defaultPosition ?? "right"
   const defaultEdgeDistance = currentSettings.panel?.defaultEdgeDistance ?? 40
+  const isEdgeSnapMode = (currentSettings.panel?.panelMode ?? "edge-snap") === "edge-snap"
+
+  const [showCodex, setShowCodex] = useState(false)
+  const [isHeaderPressed, setIsHeaderPressed] = useState(false)
+  const hasSeenCodex = currentSettings.hasSeenOphelAdvancedGuide ?? false
+  const shortcutNotSetKey = "shortcutNotSet"
+  const translatedShortcutNotSetLabel = t(shortcutNotSetKey)
+  const shortcutNotSetLabel =
+    translatedShortcutNotSetLabel === shortcutNotSetKey ? "未设置" : translatedShortcutNotSetLabel
+  const setHasSeenCodex = (val: boolean) => {
+    if (val && !hasSeenCodex && setSettings) {
+      setSettings({ hasSeenOphelAdvancedGuide: true })
+    }
+  }
+
+  const shouldShowHeaderPressHint = useCallback((target: EventTarget | null) => {
+    if (!(target instanceof Element)) {
+      return true
+    }
+
+    return !target.closest('.gh-panel-controls, [data-no-header-press-hint="true"]')
+  }, [])
+
+  const resetHeaderPressHint = useCallback(() => {
+    setIsHeaderPressed(false)
+  }, [])
+
+  const handleHeaderPointerDown = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => {
+      if (!shouldShowHeaderPressHint(event.target)) {
+        resetHeaderPressHint()
+        return
+      }
+
+      setIsHeaderPressed(true)
+    },
+    [resetHeaderPressHint, shouldShowHeaderPressHint],
+  )
+
+  const structuredTips = useMemo(
+    () =>
+      buildStructuredTips(currentSettings.shortcuts?.keybindings, isMacOS(), shortcutNotSetLabel),
+    [currentSettings.shortcuts?.keybindings, currentSettings.language, shortcutNotSetLabel],
+  )
+
+  // Hover logic for MagicCodex trigger instead of click
+  const headerInteractionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const handleLogoMouseEnter = useCallback(() => {
+    if (hasSeenCodex) return
+    if (headerInteractionTimerRef.current) clearTimeout(headerInteractionTimerRef.current)
+    setShowCodex(true)
+    setHasSeenCodex(true)
+  }, [hasSeenCodex, setHasSeenCodex])
+
+  const handleLogoMouseLeave = useCallback(() => {
+    if (headerInteractionTimerRef.current) clearTimeout(headerInteractionTimerRef.current)
+    headerInteractionTimerRef.current = setTimeout(() => {
+      setShowCodex(false)
+    }, 300)
+  }, [])
+
+  // Double click to toggle panel mode
+  const handleHeaderDoubleClick = useCallback(
+    (e: React.MouseEvent) => {
+      // 忽略在控制按钮上的双击
+      const target = e.target
+      if (target instanceof Element && target.closest(".gh-panel-controls")) return
+
+      const current = currentSettings.panel?.panelMode ?? "edge-snap"
+      if (current === "edge-snap" && panelRef.current) {
+        savedPeekingRectRef.current = panelRef.current.getBoundingClientRect()
+      }
+      updateNestedSetting("panel", "panelMode", current === "edge-snap" ? "floating" : "edge-snap")
+    },
+    [currentSettings.panel?.panelMode, updateNestedSetting],
+  )
+
+  useEffect(() => {
+    return () => {
+      if (headerInteractionTimerRef.current) clearTimeout(headerInteractionTimerRef.current)
+    }
+  }, [])
+
+  const closeCodex = useCallback(() => {
+    setShowCodex(false)
+  }, [])
 
   // 获取排序后的首个 tab
   // tabOrder 是 string[]，数组顺序就是显示顺序
@@ -193,6 +393,14 @@ export const MainPanel: React.FC<MainPanelProps> = ({
   // === 锚点状态（使用全局存储） ===
   const anchorPosition = useSyncExternalStore(anchorStore.subscribe, anchorStore.getSnapshot)
   const hasAnchor = anchorPosition !== null
+  // 使用递增 id 而非 boolean，确保快速连续点击时每次都能重播动画
+  const [anchorTapId, setAnchorTapId] = useState(0)
+  // prefers-reduced-motion 下 animation 为 none，不会触发 animationend；用 timeout 充当兜底重置
+  useEffect(() => {
+    if (anchorTapId === 0) return
+    const timer = setTimeout(() => setAnchorTapId(0), 400)
+    return () => clearTimeout(timer)
+  }, [anchorTapId])
 
   // === 加载状态（遮罩） ===
   const [isLoadingHistory, setIsLoadingHistory] = useState(false)
@@ -270,6 +478,9 @@ export const MainPanel: React.FC<MainPanelProps> = ({
     const savedAnchor = anchorStore.get()
     if (savedAnchor === null) return
 
+    // 触发按钮弹性动画
+    setAnchorTapId((id) => id + 1)
+
     // 获取当前位置
     const scrollInfo = await getScrollInfo(adapter || null)
     const currentPos = scrollInfo.scrollTop
@@ -327,10 +538,14 @@ export const MainPanel: React.FC<MainPanelProps> = ({
         style={{
           position: "fixed",
           top: "50%",
-          // 根据默认位置设置 left 或 right
-          ...(defaultPosition === "left"
-            ? { left: `${defaultEdgeDistance}px`, right: "auto" }
-            : { right: `${defaultEdgeDistance}px`, left: "auto" }),
+          // 仅在 floating 模式下通过 React style prop 设置位置；
+          // edge-snap 模式下由 useLayoutEffect + CSS class 控制，避免切换首帧
+          // 与后续重渲染写回 inline style 覆盖 CSS transition，导致动画抖动
+          ...(!isEdgeSnapMode
+            ? defaultPosition === "left"
+              ? { left: `${defaultEdgeDistance}px`, right: "auto" }
+              : { right: `${defaultEdgeDistance}px`, left: "auto" }
+            : { left: "", right: "" }),
           transform: "translateY(-50%)",
           width: `${currentSettings.panel?.width ?? 320}px`,
           height: `${currentSettings.panel?.height ?? 85}vh`,
@@ -357,9 +572,15 @@ export const MainPanel: React.FC<MainPanelProps> = ({
         {/* Header - 拖拽区域 */}
         <div
           ref={headerRef}
+          onPointerDown={handleHeaderPointerDown}
+          onPointerUp={resetHeaderPressHint}
+          onPointerLeave={resetHeaderPressHint}
+          onPointerCancel={resetHeaderPressHint}
+          onDoubleClick={handleHeaderDoubleClick}
           className="gh-panel-header"
           style={{
-            padding: "12px 14px",
+            position: "relative",
+            padding: "10px 14px",
             borderRadius: "12px 12px 0 0",
             display: "flex",
             alignItems: "center",
@@ -367,23 +588,111 @@ export const MainPanel: React.FC<MainPanelProps> = ({
             // cursor 由 CSS (.gh-panel-header) 统一控制为 pointer
             userSelect: "none",
           }}>
-          {/* 左侧：图标 + 标题（双击切换隐私模式） */}
-          <Tooltip content={t("aboutPageDesc")}>
+          {/* 左侧：图标 + 标题悬停展示高级指南 */}
+          <div
+            style={{ position: "relative" }}
+            onMouseEnter={handleLogoMouseEnter}
+            onMouseLeave={handleLogoMouseLeave}>
             <div
-              style={{ display: "flex", alignItems: "center", gap: "6px", cursor: "pointer" }}
-              onDoubleClick={() => {
-                // 发送隐私模式切换事件给 TabManager
-                window.postMessage({ type: "GH_PRIVACY_TOGGLE" }, "*")
+              className="gh-interactive"
+              role="button"
+              tabIndex={0}
+              aria-label={t("panelTitle")}
+              data-tip-target="header-title"
+              data-no-header-press-hint="true"
+              onClick={() => {
+                setShowCodex((v) => !v)
+                setHasSeenCodex(true)
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault()
+                  setShowCodex((v) => !v)
+                }
+              }}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "6px",
+                cursor: "pointer",
+                position: "relative",
+                border: "none",
+                background: "transparent",
+                padding: 0,
+                color: "inherit",
               }}>
-              <SparkleIcon size={18} color={panelSparkleColor} />
-              <span style={{ fontSize: "15px", fontWeight: 600 }}>{t("panelTitle")}</span>
+              <div style={{ position: "relative", display: "flex", alignItems: "center" }}>
+                <SparkleIcon size={18} color={panelSparkleColor} />
+                {!hasSeenCodex && (
+                  <div
+                    style={{
+                      position: "absolute",
+                      top: "-2px",
+                      right: "-2px",
+                      width: "6px",
+                      height: "6px",
+                      backgroundColor: "var(--gh-danger, #ef4444)",
+                      borderRadius: "50%",
+                      boxShadow: "0 0 0 2px var(--gh-bg, #ffffff)",
+                      animation: "pulse-red 2s infinite",
+                    }}
+                  />
+                )}
+              </div>
+              <span style={{ fontSize: "18px", fontWeight: 600, userSelect: "none" }}>
+                {t("panelTitle")}
+              </span>
             </div>
-          </Tooltip>
+
+            <MagicCodex
+              isOpen={showCodex}
+              onClose={closeCodex}
+              tips={structuredTips}
+              onMouseEnter={handleLogoMouseEnter}
+              onMouseLeave={handleLogoMouseLeave}
+            />
+          </div>
 
           {/* 右侧：按钮组 - 需要 gh-panel-controls 以排除拖拽 */}
           <div
             className="gh-panel-controls"
-            style={{ display: "flex", gap: "4px", alignItems: "center" }}>
+            data-no-header-press-hint="true"
+            style={{ display: "flex", gap: "1px", alignItems: "center" }}>
+            {/* 面板模式切换按钮 */}
+            <Tooltip
+              content={
+                (currentSettings.panel?.panelMode ?? "edge-snap") === "edge-snap"
+                  ? t("pinPanel")
+                  : t("snapToEdge")
+              }>
+              <button
+                type="button"
+                aria-label={
+                  (currentSettings.panel?.panelMode ?? "edge-snap") === "edge-snap"
+                    ? t("pinPanel")
+                    : t("snapToEdge")
+                }
+                onClick={() => {
+                  const current = currentSettings.panel?.panelMode ?? "edge-snap"
+                  // 从吸附切换到悬浮时，保存当前面板位置用于"原地固定"
+                  if (current === "edge-snap" && panelRef.current) {
+                    savedPeekingRectRef.current = panelRef.current.getBoundingClientRect()
+                  }
+                  updateNestedSetting(
+                    "panel",
+                    "panelMode",
+                    current === "edge-snap" ? "floating" : "edge-snap",
+                  )
+                }}
+                className="gh-header-icon-btn">
+                {(currentSettings.panel?.panelMode ?? "edge-snap") === "edge-snap" ? (
+                  <FloatingModeIcon size={14} />
+                ) : (
+                  <SnapToEdgeIcon size={14} />
+                )}
+              </button>
+            </Tooltip>
+
             {/* 主题切换按钮 */}
             {onThemeToggle && (
               <Tooltip content={t("toggleTheme")}>
@@ -391,73 +700,37 @@ export const MainPanel: React.FC<MainPanelProps> = ({
                   onClick={(event) => {
                     onThemeToggle?.(getButtonCenter(event.currentTarget))
                   }}
-                  style={{
-                    background: "var(--gh-glass-bg, rgba(255,255,255,0.2))",
-                    border: "none",
-                    color: "var(--gh-glass-text, white)",
-                    width: "24px",
-                    height: "24px",
-                    borderRadius: "6px",
-                    cursor: "pointer",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    fontSize: "14px",
-                    transition: "all 0.2s",
-                  }}>
+                  className="gh-header-icon-btn">
                   {getThemeIcon()}
                 </button>
               </Tooltip>
             )}
 
-            {/* 新标签页按钮 */}
-            <Tooltip content={t("newTabTooltip") || "新标签页打开"}>
-              <button
-                onClick={() => window.open(window.location.origin, "_blank")}
-                style={{
-                  background: "var(--gh-glass-bg, rgba(255,255,255,0.2))",
-                  border: "none",
-                  color: "var(--gh-glass-text, white)",
-                  width: "24px",
-                  height: "24px",
-                  borderRadius: "6px",
-                  cursor: "pointer",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  fontSize: "16px",
-                  transition: "all 0.2s",
-                }}>
-                <NewTabIcon size={14} />
-              </button>
-            </Tooltip>
+            {/* 新标签页按钮 - 受 openInNewTab 设置控制 */}
+            {currentSettings.tab?.openInNewTab && (
+              <Tooltip content={t("newTabTooltip") || "新标签页打开"}>
+                <button
+                  onClick={() => window.open(window.location.origin, "_blank")}
+                  className="gh-header-icon-btn">
+                  <NewTabIcon size={14} />
+                </button>
+              </Tooltip>
+            )}
 
             {/* 设置按钮 - 打开设置模态框 */}
             <Tooltip content={t("tabSettings")}>
               <button
+                data-tip-target="settings-btn"
                 onClick={() => {
                   onOpenSettings?.()
                 }}
-                style={{
-                  background: "var(--gh-glass-bg, rgba(255,255,255,0.2))",
-                  border: "none",
-                  color: "var(--gh-glass-text, white)",
-                  width: "24px",
-                  height: "24px",
-                  borderRadius: "6px",
-                  cursor: "pointer",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  fontSize: "14px",
-                  transition: "all 0.2s",
-                }}>
+                className="gh-header-icon-btn">
                 <SettingsIcon size={14} />
               </button>
             </Tooltip>
 
-            {/* 刷新按钮 - 根据当前 Tab 智能刷新 */}
-            <Tooltip
+            {/* 刷新按钮 - 暂时隐藏，数据已是响应式自动更新 */}
+            {/* <Tooltip
               content={
                 activeTab === TAB_IDS.OUTLINE
                   ? t("refreshOutline")
@@ -469,63 +742,61 @@ export const MainPanel: React.FC<MainPanelProps> = ({
               }>
               <button
                 onClick={() => {
-                  // 根据当前 Tab 执行对应的刷新逻辑
                   if (activeTab === TAB_IDS.OUTLINE) {
                     outlineManager?.refresh()
                   } else if (activeTab === TAB_IDS.PROMPTS) {
-                    // 提示词由 Zustand store 管理，自动响应数据变化，无需手动刷新
-                    // 触发 UI 重新获取数据
                     promptManager?.init()
                   } else if (activeTab === TAB_IDS.CONVERSATIONS) {
-                    // 触发数据变更通知，刷新 UI
                     conversationManager?.notifyDataChange()
                   }
-                  // settings 不需要刷新
                 }}
-                style={{
-                  background: "var(--gh-glass-bg, rgba(255,255,255,0.2))",
-                  border: "none",
-                  color: "var(--gh-glass-text, white)",
-                  width: "24px",
-                  height: "24px",
-                  borderRadius: "6px",
-                  cursor: "pointer",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  fontSize: "14px",
-                  transition: "all 0.2s",
-                }}>
+                className="gh-header-icon-btn">
                 <RefreshIcon size={14} />
               </button>
-            </Tooltip>
+            </Tooltip> */}
 
             {/* 折叠按钮（收起面板） */}
             <Tooltip content={t("collapse")}>
-              <button
-                onClick={onClose}
-                style={{
-                  background: "var(--gh-glass-bg, rgba(255,255,255,0.2))",
-                  border: "none",
-                  color: "var(--gh-glass-text, white)",
-                  width: "24px",
-                  height: "24px",
-                  borderRadius: "6px",
-                  cursor: "pointer",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  fontSize: "18px",
-                  fontWeight: 600,
-                  transition: "all 0.2s",
-                }}>
+              <button onClick={onClose} aria-label={t("collapse")} className="gh-header-icon-btn">
                 <MinimizeIcon size={14} />
               </button>
             </Tooltip>
           </div>
         </div>
 
-        {/* Tabs - 标签栏 */}
+        {/* 拖拽/悬停 即时提示层 (幽灵模式) */}
+        <div
+          style={{
+            position: "absolute",
+            top: "56px",
+            left: "50%",
+            width: "max-content",
+            maxWidth: "85%",
+            transform: `translate(-50%, ${isHeaderPressed ? "8px" : "-4px"})`,
+            opacity: isHeaderPressed ? 1 : 0,
+            pointerEvents: "none",
+            transition: "all 0.3s cubic-bezier(0.2, 0.8, 0.2, 1)",
+            background: "var(--gh-bg-secondary, rgba(255, 255, 255, 0.85))",
+            backdropFilter: "blur(12px)",
+            WebkitBackdropFilter: "blur(12px)",
+            color: "var(--gh-text, #1f2937)",
+            border: "1px solid var(--gh-border, rgba(0,0,0,0.1))",
+            padding: "6px 12px",
+            borderRadius: "12px",
+            fontSize: "12px",
+            fontWeight: 500,
+            display: "flex",
+            textAlign: "left",
+            alignItems: "flex-start",
+            gap: "8px",
+            boxShadow: "var(--gh-shadow-lg, 0 8px 24px rgba(0,0,0,0.12))",
+            zIndex: 10,
+          }}>
+          <span style={{ fontSize: "14px", flexShrink: 0, marginTop: "1px" }}>👻</span>
+          <span style={{ lineHeight: "1.5" }}>
+            {t("tip1", { modifier: isMacOS() ? "⌘ Cmd" : "Ctrl" })}
+          </span>
+        </div>
         <div
           className="gh-panel-tabs"
           style={{
@@ -543,10 +814,19 @@ export const MainPanel: React.FC<MainPanelProps> = ({
             return (
               <button
                 key={tab}
+                data-tip-target={
+                  tab === TAB_IDS.OUTLINE
+                    ? "outline-tab"
+                    : tab === TAB_IDS.CONVERSATIONS
+                      ? "conversations-tab"
+                      : tab === TAB_IDS.PROMPTS
+                        ? "prompts-tab"
+                        : undefined
+                }
                 onClick={() => setActiveTab(tab)}
                 style={{
                   flex: 1,
-                  padding: "10px 8px",
+                  padding: "7px 8px",
                   border: "none",
                   background: "transparent",
                   borderBottom:
@@ -600,7 +880,11 @@ export const MainPanel: React.FC<MainPanelProps> = ({
             />
           )}
           {activeTab === TAB_IDS.OUTLINE && (
-            <OutlineTab manager={outlineManager} onJumpBefore={saveAnchor} />
+            <OutlineTab
+              manager={outlineManager}
+              onJumpBefore={saveAnchor}
+              isCodexOpen={showCodex}
+            />
           )}
         </div>
 
@@ -611,7 +895,7 @@ export const MainPanel: React.FC<MainPanelProps> = ({
             display: "flex",
             justifyContent: "space-around",
             alignItems: "center",
-            padding: "10px 16px",
+            padding: "8px 16px",
             borderTop: "1px solid var(--gh-border, #e5e7eb)",
             background: "var(--gh-bg-secondary, #f9fafb)",
           }}>
@@ -651,7 +935,7 @@ export const MainPanel: React.FC<MainPanelProps> = ({
 
           {/* 锚点按钮（返回之前位置，双向跳转） */}
           <Tooltip
-            content={hasAnchor ? t("jumpToAnchor") : "暂无锚点"}
+            content={hasAnchor ? t("jumpToAnchor") : t("noAnchor")}
             triggerStyle={{ flex: "0 0 32px" }}>
             <button
               className="gh-interactive scroll-nav-btn anchor-btn"
@@ -678,7 +962,7 @@ export const MainPanel: React.FC<MainPanelProps> = ({
                 if (hasAnchor) {
                   e.currentTarget.style.transform = "scale(1.1)"
                   e.currentTarget.style.boxShadow = "var(--gh-btn-shadow-hover)"
-                  // 旋转特效
+                  // 旋转特效（作用于内层 div）
                   const div = e.currentTarget.querySelector("div")
                   if (div) div.style.transform = "rotate(360deg)"
                 }
@@ -686,19 +970,25 @@ export const MainPanel: React.FC<MainPanelProps> = ({
               onMouseLeave={(e) => {
                 e.currentTarget.style.transform = "scale(1)"
                 e.currentTarget.style.boxShadow = hasAnchor ? "var(--gh-btn-shadow)" : "none"
-                // 恢复旋转
                 const div = e.currentTarget.querySelector("div")
                 if (div) div.style.transform = "rotate(0deg)"
               }}>
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  transition: "transform 0.5s cubic-bezier(0.34, 1.56, 0.64, 1)",
-                }}>
-                <AnchorIcon size={14} />
-              </div>
+              {/* 动画目标：独立于按钮的 inline transform，key 变化强制重新挂载以重播动画 */}
+              <span
+                key={anchorTapId}
+                className={`anchor-tap-wrapper${anchorTapId > 0 ? " is-tapping" : ""}`}
+                onAnimationEnd={() => setAnchorTapId(0)}
+                style={{ display: "flex", alignItems: "center", justifyContent: "center" }}>
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    transition: "transform 0.5s cubic-bezier(0.34, 1.56, 0.64, 1)",
+                  }}>
+                  <AnchorIcon size={14} />
+                </div>
+              </span>
             </button>
           </Tooltip>
 

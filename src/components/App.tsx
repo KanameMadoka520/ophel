@@ -69,8 +69,10 @@ import {
 import {
   DEFAULT_KEYBINDINGS,
   formatShortcut,
+  normalizeShortcutsSettings,
   SHORTCUT_ACTIONS,
   SHORTCUT_META,
+  type ShortcutActionId,
 } from "~constants/shortcuts"
 
 interface LocalizedLabelDefinition {
@@ -144,6 +146,15 @@ const isLikelyMacPlatform = () => {
 
 const PASS_THROUGH_META_KEY_ALIASES = new Set(["Meta", "OS", "Command", "Cmd"])
 const PASS_THROUGH_CONTROL_KEY_ALIASES = new Set(["Control", "Ctrl"])
+const EDGE_PEEK_OVERLAY_SELECTOR = [
+  ".conversations-dialog-overlay",
+  ".conversations-folder-menu",
+  ".conversations-tag-filter-menu",
+  ".prompt-modal",
+  ".gh-dialog-overlay",
+  ".settings-modal-overlay",
+  ".settings-search-overlay",
+].join(", ")
 
 const GLOBAL_SEARCH_CATEGORY_DEFINITIONS: GlobalSearchCategoryDefinition[] = [
   {
@@ -182,6 +193,12 @@ const GLOBAL_SEARCH_CATEGORY_DEFINITIONS: GlobalSearchCategoryDefinition[] = [
     placeholder: { key: "globalSearchPlaceholderSettings", fallback: "Search settings" },
     emptyText: { key: "globalSearchEmptySettings", fallback: "No matching settings" },
   },
+  {
+    id: "tips",
+    label: { key: "featureTipsCategory", fallback: "Tips" },
+    placeholder: { key: "featureTipSearchPlaceholder", fallback: "Search feature tips…" },
+    emptyText: { key: "globalSearchEmptyTips", fallback: "No matching tips" },
+  },
 ]
 
 const GLOBAL_SEARCH_RESULT_CATEGORY_LABELS: Record<
@@ -192,6 +209,7 @@ const GLOBAL_SEARCH_RESULT_CATEGORY_LABELS: Record<
   settings: { key: "globalSearchCategorySettings", fallback: "Settings" },
   conversations: { key: "globalSearchCategoryConversations", fallback: "Conversations" },
   prompts: { key: "globalSearchCategoryPrompts", fallback: "Prompts" },
+  tips: { key: "featureTipsCategory", fallback: "Tips" },
 }
 
 const GLOBAL_SEARCH_MATCH_REASON_LABEL_DEFINITIONS: Record<
@@ -276,13 +294,11 @@ const SETTING_SEARCH_TITLE_KEY_MAP: Record<string, string> = {
   "outline-prevent-auto-scroll": "preventAutoScrollLabel",
   "outline-show-word-count": "outlineShowWordCountLabel",
   "outline-update-interval": "outlineUpdateIntervalLabel",
-  "panel-auto-hide": "autoHidePanelLabel",
-  "panel-default-open": "defaultPanelStateLabel",
   "panel-default-position": "defaultPositionLabel",
   "panel-edge-distance": "defaultEdgeDistanceLabel",
-  "panel-edge-snap": "edgeSnapHideLabel",
   "panel-edge-snap-threshold": "edgeSnapThresholdLabel",
   "panel-height": "panelHeightLabel",
+  "panel-mode": "panelModeLabel",
   "panel-width": "panelWidthLabel",
   "prompt-double-click-send": "promptDoubleClickSendLabel",
   "prompt-queue": "queueSettingLabel",
@@ -348,7 +364,7 @@ const hasPromptVariables = (content: string): boolean => /\{\{([^\s{}]+)\}\}/.te
 
 export const App = () => {
   // 读取设置 - 使用 Zustand Store
-  const { settings, setSettings, updateDeepSetting } = useSettingsStore()
+  const { settings, setSettings, updateDeepSetting, updateNestedSetting } = useSettingsStore()
   const isSettingsHydrated = useSettingsHydrated()
   const promptSubmitShortcut = settings?.features?.prompts?.submitShortcut ?? "enter"
 
@@ -380,13 +396,21 @@ export const App = () => {
   )
 
   const isMacLike = useMemo(() => isLikelyMacPlatform(), [])
+  const resolvedShortcutSettings = useMemo(
+    () => normalizeShortcutsSettings(settings?.shortcuts) || DEFAULT_SETTINGS.shortcuts,
+    [settings?.shortcuts],
+  )
   const globalSearchPrimaryBinding = useMemo(() => {
-    const userBinding = settings?.shortcuts?.keybindings?.[SHORTCUT_ACTIONS.OPEN_GLOBAL_SEARCH]
+    if (!resolvedShortcutSettings.enabled) {
+      return null
+    }
+
+    const userBinding = resolvedShortcutSettings.keybindings[SHORTCUT_ACTIONS.OPEN_GLOBAL_SEARCH]
     if (userBinding === null) {
       return null
     }
     return userBinding || DEFAULT_KEYBINDINGS[SHORTCUT_ACTIONS.OPEN_GLOBAL_SEARCH]
-  }, [settings?.shortcuts?.keybindings])
+  }, [resolvedShortcutSettings])
   const globalSearchPrimaryShortcutLabel = globalSearchPrimaryBinding
     ? formatShortcut(globalSearchPrimaryBinding, isMacLike)
     : ""
@@ -404,6 +428,27 @@ export const App = () => {
 
     return labels.join(" / ")
   }, [globalSearchPrimaryShortcutLabel, isDoubleShiftSearchShortcutEnabled])
+  const passThroughModifierLabel = isMacLike ? "⌘" : "Ctrl"
+  const resolveShortcutLabel = useCallback(
+    (actionId: ShortcutActionId): string | null => {
+      if (actionId === SHORTCUT_ACTIONS.OPEN_GLOBAL_SEARCH) {
+        return globalSearchShortcutHintLabel || null
+      }
+
+      if (!resolvedShortcutSettings.enabled) {
+        return null
+      }
+
+      const binding = resolvedShortcutSettings.keybindings[actionId]
+      if (binding === null) {
+        return null
+      }
+
+      const resolvedBinding = binding || DEFAULT_KEYBINDINGS[actionId]
+      return resolvedBinding ? formatShortcut(resolvedBinding, isMacLike) : null
+    },
+    [globalSearchShortcutHintLabel, isMacLike, resolvedShortcutSettings],
+  )
   const globalSearchOverlayHotkeyLabel =
     globalSearchShortcutHintLabel || t("shortcutNotSet") || "未设置"
   const isGlobalSearchFuzzySearchEnabled =
@@ -543,6 +588,23 @@ export const App = () => {
       setSettingsSearchQuery(nextValue)
     },
     [clearSettingsSearchInputDebounceTimer],
+  )
+
+  const syncGlobalSearchValueAndCategory = useCallback(
+    (nextValue: string) => {
+      const normalizedValue = nextValue.trimStart()
+
+      syncSettingsSearchInputAndQuery(nextValue)
+
+      setActiveGlobalSearchCategory((previousCategory) => {
+        if (normalizedValue.startsWith("tip:")) {
+          return previousCategory === "tips" ? previousCategory : "tips"
+        }
+
+        return previousCategory === "tips" ? "all" : previousCategory
+      })
+    },
+    [syncSettingsSearchInputAndQuery],
   )
 
   const toggleGlobalSearchFuzzySearch = useCallback(() => {
@@ -798,22 +860,39 @@ export const App = () => {
     // 确保仅在 hydration 完成且 settings 加载后执行一次初始化
     if (isSettingsHydrated && settings && !isInitializedRef.current) {
       isInitializedRef.current = true
-      // 如果 defaultPanelOpen 为 true，打开面板
-      if (settings.panel?.defaultOpen) {
-        // 如果开启了边缘吸附，且初始边距小于吸附阈值，则直接初始化为吸附状态
-        const {
-          edgeSnap,
-          defaultEdgeDistance = 25,
-          edgeSnapThreshold = 18,
-          defaultPosition = "right",
-        } = settings.panel
-        if (edgeSnap && defaultEdgeDistance <= edgeSnapThreshold) {
+      const panelMode = settings.panel?.panelMode ?? "edge-snap"
+      const defaultPosition = settings.panel?.defaultPosition ?? "right"
+
+      switch (panelMode) {
+        case "edge-snap":
+          setIsPanelOpen(true)
           setEdgeSnapState(defaultPosition)
+          break
+        case "floating": {
+          // 悬浮模式：恢复上次的开关状态
+          const lastOpen = settings.panel?.lastPanelOpen ?? true
+          setIsPanelOpen(lastOpen)
+          break
         }
-        setIsPanelOpen(true)
       }
     }
   }, [isSettingsHydrated, settings])
+
+  // 悬浮模式下，持久化面板开关状态
+  // 用 ref 追踪上一次 panelMode，排除"模式刚切换到 floating"这一帧——
+  // 此时 isPanelOpen 还是 edge-snap 的旧值（false），若立即保存会污染 lastPanelOpen
+  const prevSavePanelModeRef = useRef(settings?.panel?.panelMode)
+  useEffect(() => {
+    if (!isInitializedRef.current) return
+    const panelMode = settings?.panel?.panelMode ?? "edge-snap"
+    const prevMode = prevSavePanelModeRef.current
+    prevSavePanelModeRef.current = panelMode
+    // 仅在"已处于悬浮模式时 isPanelOpen 发生变化"才保存，
+    // 跳过模式由 edge-snap 切入 floating 的那一帧（此时 isPanelOpen 尚未被 mode-switch effect 更新）
+    if (panelMode === "floating" && prevMode === "floating") {
+      updateNestedSetting("panel", "lastPanelOpen", isPanelOpen)
+    }
+  }, [isPanelOpen, settings?.panel?.panelMode, updateNestedSetting])
 
   // 全局防遮挡状态 (防遮挡体验升级)
   const [isPassThrough, setIsPassThrough] = useState(false)
@@ -952,9 +1031,9 @@ export const App = () => {
   const globalSearchSyntaxHelpPopoverRef = useRef<HTMLDivElement | null>(null)
   const settingsSearchResultsRef = useRef<HTMLDivElement | null>(null)
   const promptPreviewContainerRef = useRef<HTMLDivElement | null>(null)
-  const searchInputDebounceTimerRef = useRef<NodeJS.Timeout | null>(null)
+  const searchInputDebounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const settingsSearchWheelFreezeUntilRef = useRef(0)
-  const globalSearchNudgeHideTimerRef = useRef<NodeJS.Timeout | null>(null)
+  const globalSearchNudgeHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const globalSearchOpenSourceRef = useRef<GlobalSearchOpenSource>("ui")
   const lastShiftPressedAtRef = useRef(0)
   const [outlineSearchVersion, setOutlineSearchVersion] = useState(0)
@@ -991,9 +1070,9 @@ export const App = () => {
   // 是否有活跃的交互（如打开了菜单/对话框），此时即使鼠标移出也不隐藏面板
   // 使用 useRef 避免闭包陷阱和不必要的重渲染
   const isInteractionActiveRef = useRef(false)
-  const hideTimerRef = useRef<NodeJS.Timeout | null>(null)
+  const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   // 快捷键触发的面板显示延迟缩回计时器
-  const shortcutPeekTimerRef = useRef<NodeJS.Timeout | null>(null)
+  const shortcutPeekTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   // 使用 ref 跟踪设置模态框状态，避免闭包捕获过期值
   const isSettingsOpenRef = useRef(false)
   // 标记全局搜索是否由设置页切换而来（用于 Esc 返回）
@@ -1002,6 +1081,85 @@ export const App = () => {
   const isInputFocusedRef = useRef(false)
   // 追踪是否已完成初始化，防止重复执行
   const isInitializedRef = useRef(false)
+  // 模式刚切换到 edge-snap，压制 MutationObserver 的初始 overlay 检查
+  // 让面板先收缩作为预览，而不是因为设置模态框仍在打开而强制 peek
+  const suppressEdgePeekInitRef = useRef(false)
+
+  const getEdgePeekQueryRoots = useCallback((): Array<Element | ShadowRoot> => {
+    const roots: Array<Element | ShadowRoot> = []
+    const shadowHosts = document.querySelectorAll("plasmo-csui, #ophel-userscript-root")
+
+    for (const shadowHost of shadowHosts) {
+      if (shadowHost.shadowRoot) {
+        roots.push(shadowHost.shadowRoot)
+      }
+    }
+
+    if (document.body) {
+      roots.push(document.body)
+    }
+
+    return roots
+  }, [])
+
+  const findUiElement = useCallback(
+    (selector: string): HTMLElement | null => {
+      for (const root of getEdgePeekQueryRoots()) {
+        const element = root.querySelector(selector)
+        if (element instanceof HTMLElement) {
+          return element
+        }
+      }
+
+      return null
+    },
+    [getEdgePeekQueryRoots],
+  )
+
+  const hasOpenEdgePeekOverlay = useCallback(
+    () =>
+      getEdgePeekQueryRoots().some((root) =>
+        Boolean(root.querySelector(EDGE_PEEK_OVERLAY_SELECTOR)),
+      ),
+    [getEdgePeekQueryRoots],
+  )
+
+  const syncEdgePeekWithPanelHover = useCallback(() => {
+    const currentSettings = settingsRef.current
+
+    if (!edgeSnapState || currentSettings?.panel?.panelMode !== "edge-snap") {
+      return
+    }
+
+    if (isSettingsOpenRef.current || isInteractionActiveRef.current || isInputFocusedRef.current) {
+      return
+    }
+
+    if (hasOpenEdgePeekOverlay()) {
+      return
+    }
+
+    const panel = findUiElement(".gh-main-panel")
+    if (!panel) {
+      return
+    }
+
+    setIsEdgePeeking(panel.matches(":hover"))
+  }, [edgeSnapState, findUiElement, hasOpenEdgePeekOverlay])
+
+  const scheduleEdgePeekHoverSync = useCallback(
+    (delayMs: number = 0) => {
+      if (hideTimerRef.current) {
+        clearTimeout(hideTimerRef.current)
+      }
+
+      hideTimerRef.current = setTimeout(() => {
+        hideTimerRef.current = null
+        syncEdgePeekWithPanelHover()
+      }, delayMs)
+    },
+    [syncEdgePeekWithPanelHover],
+  )
 
   // 接收到设置导航事件时，自动打开设置弹窗
   useEffect(() => {
@@ -1027,7 +1185,7 @@ export const App = () => {
       if (!isSettingsOpenRef.current) {
         isSettingsOpenRef.current = true
 
-        if (edgeSnapState && settingsRef.current?.panel?.edgeSnap) {
+        if (edgeSnapState && settingsRef.current?.panel?.panelMode === "edge-snap") {
           setIsEdgePeeking(true)
         }
 
@@ -1129,6 +1287,8 @@ export const App = () => {
     outlineManager,
     outlineSearchVersion,
     getLocalizedText,
+    resolveShortcutLabel,
+    passThroughModifierLabel,
     activeGlobalSearchCategory,
     expandedGlobalSearchCategories,
     allCategoryItemLimit: GLOBAL_SEARCH_ALL_CATEGORY_ITEM_LIMIT,
@@ -1253,9 +1413,11 @@ export const App = () => {
       const nextToken = `${suggestion.token}${shouldAppendTrailingSpace ? " " : ""}`
       const nextValue = trailingTokenInfo
         ? `${settingsSearchInputValue.slice(0, trailingTokenInfo.start)}${nextToken}`
-        : `${settingsSearchInputValue}${settingsSearchInputValue.endsWith(" ") ? "" : " "}${nextToken}`
+        : settingsSearchInputValue.trim().length > 0
+          ? `${settingsSearchInputValue}${settingsSearchInputValue.endsWith(" ") ? "" : " "}${nextToken}`
+          : nextToken
 
-      syncSettingsSearchInputAndQuery(nextValue)
+      syncGlobalSearchValueAndCategory(nextValue)
       setActiveSearchSyntaxSuggestionIndex(-1)
       setSettingsSearchActiveIndex(0)
 
@@ -1270,7 +1432,7 @@ export const App = () => {
         inputElement.setSelectionRange(cursorPosition, cursorPosition)
       })
     },
-    [settingsSearchInputValue, syncSettingsSearchInputAndQuery],
+    [settingsSearchInputValue, syncGlobalSearchValueAndCategory],
   )
 
   const applyGlobalSearchSyntaxHelpItem = useCallback(
@@ -1388,16 +1550,9 @@ export const App = () => {
     setIsSettingsOpen(false)
 
     const currentSettings = settingsRef.current
-    if (!currentSettings?.panel?.edgeSnap) return
+    if (currentSettings?.panel?.panelMode !== "edge-snap") return
 
-    let panel: HTMLElement | null = null
-    const shadowHost = document.querySelector("plasmo-csui, #ophel-userscript-root")
-    if (shadowHost?.shadowRoot) {
-      panel = shadowHost.shadowRoot.querySelector(".gh-main-panel") as HTMLElement
-    }
-    if (!panel) {
-      panel = document.querySelector(".gh-main-panel") as HTMLElement
-    }
+    const panel = findUiElement(".gh-main-panel")
 
     if (!panel) return
 
@@ -1405,17 +1560,19 @@ export const App = () => {
       panel.classList.contains("edge-snapped-left") ||
       panel.classList.contains("edge-snapped-right")
 
-    if (isAlreadySnapped) return
+    if (!isAlreadySnapped) {
+      const rect = panel.getBoundingClientRect()
+      const snapThreshold = currentSettings?.panel?.edgeSnapThreshold ?? 30
 
-    const rect = panel.getBoundingClientRect()
-    const snapThreshold = currentSettings?.panel?.edgeSnapThreshold ?? 30
-
-    if (rect.left < snapThreshold) {
-      setEdgeSnapState("left")
-    } else if (window.innerWidth - rect.right < snapThreshold) {
-      setEdgeSnapState("right")
+      if (rect.left < snapThreshold) {
+        setEdgeSnapState("left")
+      } else if (window.innerWidth - rect.right < snapThreshold) {
+        setEdgeSnapState("right")
+      }
     }
-  }, [])
+
+    scheduleEdgePeekHoverSync()
+  }, [findUiElement, scheduleEdgePeekHoverSync])
 
   const openGlobalSettingsSearch = useCallback(
     (source: GlobalSearchOpenSource = "ui") => {
@@ -1428,7 +1585,7 @@ export const App = () => {
         searchOpenedFromSettingsRef.current = false
       }
 
-      if (edgeSnapState && settingsRef.current?.panel?.edgeSnap) {
+      if (edgeSnapState && settingsRef.current?.panel?.panelMode === "edge-snap") {
         setIsEdgePeeking(true)
       }
 
@@ -1479,13 +1636,15 @@ export const App = () => {
       if (shouldReopenSettings) {
         isSettingsOpenRef.current = true
 
-        if (edgeSnapState && settingsRef.current?.panel?.edgeSnap) {
+        if (edgeSnapState && settingsRef.current?.panel?.panelMode === "edge-snap") {
           setIsEdgePeeking(true)
         }
 
         setIsSettingsOpen(true)
         return
       }
+
+      scheduleEdgePeekHoverSync()
 
       if (!shouldRestoreFocus || !restoreElement || !restoreElement.isConnected) {
         return
@@ -1503,7 +1662,7 @@ export const App = () => {
         }
       })
     },
-    [clearSettingsSearchInputDebounceTimer, edgeSnapState],
+    [clearSettingsSearchInputDebounceTimer, edgeSnapState, scheduleEdgePeekHoverSync],
   )
 
   const openSettingsModal = useCallback(() => {
@@ -1514,7 +1673,7 @@ export const App = () => {
     searchOpenedFromSettingsRef.current = false
     isSettingsOpenRef.current = true
 
-    if (edgeSnapState && settingsRef.current?.panel?.edgeSnap) {
+    if (edgeSnapState && settingsRef.current?.panel?.panelMode === "edge-snap") {
       setIsEdgePeeking(true)
     }
 
@@ -1524,6 +1683,24 @@ export const App = () => {
   const navigateToSearchResult = useCallback(
     async (item: GlobalSearchResultItem) => {
       closeGlobalSettingsSearch({ restoreFocus: false })
+
+      if (item.tipId) {
+        if (item.tipHighlightTarget) {
+          const targetEl = findUiElement(`[data-tip-target="${item.tipHighlightTarget}"]`)
+          if (targetEl) {
+            targetEl.classList.remove("feature-highlight")
+            // Force reflow to restart animation
+            void targetEl.offsetWidth
+            targetEl.classList.add("feature-highlight")
+            setTimeout(() => targetEl.classList.remove("feature-highlight"), 2500)
+            targetEl.scrollIntoView({ behavior: "smooth", block: "nearest" })
+            return
+          }
+        }
+        // 无可定位 UI 元素时，优先提示可执行动作文案，而不是说明文案
+        showToast(item.tipActionText || item.snippet || item.title, 3000)
+        return
+      }
 
       if (item.category === "settings" && item.settingId) {
         window.dispatchEvent(
@@ -1568,11 +1745,7 @@ export const App = () => {
         }
 
         if (targetElement && targetElement.isConnected) {
-          targetElement.scrollIntoView({
-            behavior: "instant",
-            block: "start",
-            __bypassLock: true,
-          } as ScrollIntoViewOptions & { __bypassLock?: boolean })
+          outlineManager.scrollToOutlineTarget(targetElement as HTMLElement)
           targetElement.classList.add("outline-highlight")
           setTimeout(() => targetElement?.classList.remove("outline-highlight"), 2000)
           return
@@ -1685,7 +1858,15 @@ export const App = () => {
         adapter?.navigateToConversation(item.conversationId, item.conversationUrl)
       }
     },
-    [adapter, closeGlobalSettingsSearch, outlineManager, promptManager, promptsSnapshot, settings],
+    [
+      adapter,
+      closeGlobalSettingsSearch,
+      findUiElement,
+      outlineManager,
+      promptManager,
+      promptsSnapshot,
+      settings,
+    ],
   )
 
   useEffect(() => {
@@ -1795,16 +1976,19 @@ export const App = () => {
     }
 
     const handleOutsidePress = (event: MouseEvent) => {
-      const target = event.target as Node | null
-      if (!target) {
+      const path = event.composedPath ? event.composedPath() : [event.target as Node]
+
+      if (
+        globalSearchSyntaxHelpTriggerRef.current &&
+        path.includes(globalSearchSyntaxHelpTriggerRef.current)
+      ) {
         return
       }
 
-      if (globalSearchSyntaxHelpTriggerRef.current?.contains(target)) {
-        return
-      }
-
-      if (globalSearchSyntaxHelpPopoverRef.current?.contains(target)) {
+      if (
+        globalSearchSyntaxHelpPopoverRef.current &&
+        path.includes(globalSearchSyntaxHelpPopoverRef.current)
+      ) {
         return
       }
 
@@ -2210,6 +2394,8 @@ export const App = () => {
 
   useEffect(() => {
     const handleExtensionUpdateAvailable = (event: Event) => {
+      if (window.__OPHEL_EXTENSION_UPDATE_DISMISSED__) return
+
       const customEvent = event as CustomEvent<{ version?: string }>
       const nextVersion =
         customEvent.detail?.version || window.__OPHEL_PENDING_UPDATE_VERSION__ || null
@@ -2220,7 +2406,10 @@ export const App = () => {
 
     window.addEventListener(EVENT_EXTENSION_UPDATE_AVAILABLE, handleExtensionUpdateAvailable)
 
-    if (window.__OPHEL_EXTENSION_UPDATE_AVAILABLE__) {
+    if (
+      window.__OPHEL_EXTENSION_UPDATE_AVAILABLE__ &&
+      !window.__OPHEL_EXTENSION_UPDATE_DISMISSED__
+    ) {
       setShowExtensionUpdateNotice(true)
       setExtensionUpdateVersion(window.__OPHEL_PENDING_UPDATE_VERSION__ || null)
     }
@@ -2243,6 +2432,7 @@ export const App = () => {
   }, [showExtensionUpdateNotice])
 
   const handleDismissExtensionUpdateNotice = useCallback(() => {
+    window.__OPHEL_EXTENSION_UPDATE_DISMISSED__ = true
     window.__OPHEL_EXTENSION_UPDATE_AVAILABLE__ = false
     setShowExtensionUpdateNotice(false)
   }, [])
@@ -2443,14 +2633,34 @@ export const App = () => {
     onToggleScrollLock: handleToggleScrollLock,
   })
 
-  // 当自动吸附设置变化时的处理：关闭自动吸附时立即重置吸附状态
-  // 开启自动吸附的处理在 SettingsModal onClose 回调中
+  // 当面板模式切换时的处理
+  const prevPanelModeForSwitchRef = useRef<string | undefined>(undefined)
   useEffect(() => {
-    if (edgeSnapState && !settings?.panel?.edgeSnap) {
+    const panelMode = settings?.panel?.panelMode ?? "edge-snap"
+
+    // 首次渲染时仅记录模式，不执行切换逻辑（初始化由 init useEffect 处理）
+    if (prevPanelModeForSwitchRef.current === undefined) {
+      prevPanelModeForSwitchRef.current = panelMode
+      return
+    }
+    if (prevPanelModeForSwitchRef.current === panelMode) return
+    prevPanelModeForSwitchRef.current = panelMode
+
+    if (panelMode === "edge-snap") {
+      // 切换到吸附模式：初始化吸附到默认位置，立即收缩作为预览
+      const defaultPosition = settings?.panel?.defaultPosition ?? "right"
+      suppressEdgePeekInitRef.current = true
+      setEdgeSnapState(defaultPosition)
+      setIsEdgePeeking(false)
+      setIsPanelOpen(true)
+    } else {
+      // 切换离开吸附模式：清除吸附状态，恢复悬浮模式的上次开关记忆
       setEdgeSnapState(null)
       setIsEdgePeeking(false)
+      const lastOpen = settings?.panel?.lastPanelOpen ?? true
+      setIsPanelOpen(lastOpen)
     }
-  }, [settings?.panel?.edgeSnap, edgeSnapState])
+  }, [settings?.panel?.panelMode, settings?.panel?.defaultPosition, settings?.panel?.lastPanelOpen])
 
   // 监听默认位置变化，重置吸附状态
   // 当用户切换默认位置（如从左到右）时，如果是吸附状态，需要重置以便面板能跳转到新位置
@@ -2477,17 +2687,11 @@ export const App = () => {
   // 使用 MutationObserver 监听 Portal 元素（菜单/对话框/设置模态框）的存在
   // 当 Portal 元素存在时，强制设置 isEdgePeeking 为 true，防止 CSS :hover 失效导致面板隐藏
   useEffect(() => {
-    if (!edgeSnapState || !settings?.panel?.edgeSnap) return
-
-    const portalSelector =
-      ".conversations-dialog-overlay, .conversations-folder-menu, .conversations-tag-filter-menu, .prompt-modal, .gh-dialog-overlay, .settings-modal-overlay"
+    const panelMode = settings?.panel?.panelMode ?? "edge-snap"
+    if (!edgeSnapState || panelMode !== "edge-snap") return
 
     // 检查当前是否有 Portal 元素存在
-    const checkPortalExists = () => {
-      const portals = document.body.querySelectorAll(portalSelector)
-      const searchOverlays = document.body.querySelectorAll(".settings-search-overlay")
-      return portals.length > 0 || searchOverlays.length > 0
-    }
+    const checkPortalExists = () => hasOpenEdgePeekOverlay()
 
     // 追踪之前的 Portal 状态，用于检测 Portal 关闭
     let prevHasPortal = checkPortalExists()
@@ -2508,39 +2712,45 @@ export const App = () => {
         }
       } else if (!hasPortal && prevHasPortal) {
         // Portal 元素刚消失，延迟后检查是否需要隐藏
-        if (hideTimerRef.current) clearTimeout(hideTimerRef.current)
-        hideTimerRef.current = setTimeout(() => {
-          // 500ms 后检查：如果没有新的 Portal，且没有活跃交互，则隐藏
-          if (!checkPortalExists() && !isInteractionActiveRef.current) {
-            setIsEdgePeeking(false)
-          }
-        }, 500)
+        scheduleEdgePeekHoverSync(500)
       }
 
       prevHasPortal = hasPortal
     })
 
-    // 开始观察 document.body 的直接子元素变化
-    observer.observe(document.body, {
-      childList: true,
-      subtree: false,
-    })
+    for (const root of getEdgePeekQueryRoots()) {
+      observer.observe(root, {
+        childList: true,
+        // ShadowRoot 内 overlay 嵌套较深需要 subtree；body 上的 portal 是直接子节点，无需 subtree 避免聊天页频繁 DOM 变动触发回调
+        subtree: root !== document.body,
+      })
+    }
 
-    // 初始检查
-    if (checkPortalExists()) {
+    // 初始检查（模式刚切换到 edge-snap 时跳过，让面板先收缩作为预览）
+    if (suppressEdgePeekInitRef.current) {
+      suppressEdgePeekInitRef.current = false
+    } else if (checkPortalExists()) {
       setIsEdgePeeking(true)
     }
 
     return () => {
       observer.disconnect()
+      suppressEdgePeekInitRef.current = false
     }
-  }, [edgeSnapState, settings?.panel?.edgeSnap])
+  }, [
+    edgeSnapState,
+    getEdgePeekQueryRoots,
+    hasOpenEdgePeekOverlay,
+    scheduleEdgePeekHoverSync,
+    settings?.panel?.panelMode,
+  ])
 
   // 监听面板内输入框的聚焦状态
   // 解决问题：当用户在输入框中打字时，IME 输入法弹出会导致浏览器丢失 CSS :hover 状态
   // 方案：在输入框聚焦时主动设置 isEdgePeeking = true，不依赖纯 CSS :hover
   useEffect(() => {
-    if (!edgeSnapState || !settings?.panel?.edgeSnap) return
+    const panelMode = settings?.panel?.panelMode ?? "edge-snap"
+    if (!edgeSnapState || panelMode !== "edge-snap") return
 
     // 获取 Shadow DOM 根节点
     const shadowHost = document.querySelector("plasmo-csui, #ophel-userscript-root")
@@ -2597,13 +2807,7 @@ export const App = () => {
             !isSettingsOpenRef.current &&
             !isInteractionActiveRef.current
           ) {
-            const portalElements = document.body.querySelectorAll(
-              ".conversations-dialog-overlay, .conversations-folder-menu, .conversations-tag-filter-menu, .prompt-modal, .gh-dialog-overlay, .settings-modal-overlay",
-            )
-            const searchOverlays = document.body.querySelectorAll(".settings-search-overlay")
-            if (portalElements.length === 0 && searchOverlays.length === 0) {
-              setIsEdgePeeking(false)
-            }
+            syncEdgePeekWithPanelHover()
           }
         }, 300)
       }
@@ -2617,67 +2821,7 @@ export const App = () => {
       shadowRoot.removeEventListener("focusin", handleFocusIn, true)
       shadowRoot.removeEventListener("focusout", handleFocusOut, true)
     }
-  }, [edgeSnapState, settings?.panel?.edgeSnap])
-
-  useEffect(() => {
-    // 只有在开启自动隐藏时，才监听点击外部
-    // 如果没有开启自动隐藏，无论是否吸附，点击外部都不应有反应
-    const shouldHandle = settings?.panel?.autoHide
-    if (!shouldHandle || !isPanelOpen) return
-
-    const handleClickOutside = (e: MouseEvent) => {
-      // 使用 composedPath() 支持 Shadow DOM
-      const path = e.composedPath()
-
-      // 检查点击路径中是否包含面板、快捷按钮或 Portal 元素（菜单/对话框）
-      const isInsidePanelOrPortal = path.some((el) => {
-        if (!(el instanceof Element)) return false
-        // 检查是否是面板内部
-        if (el.closest?.(".gh-main-panel")) return true
-        // 检查是否是快捷按钮
-        if (el.closest?.(".gh-quick-buttons")) return true
-        // 检查是否是 Portal 元素（菜单、对话框、设置模态框）
-        if (el.closest?.(".conversations-dialog-overlay")) return true
-        if (el.closest?.(".conversations-folder-menu")) return true
-        if (el.closest?.(".conversations-tag-filter-menu")) return true
-        if (el.closest?.(".prompt-modal")) return true
-        if (el.closest?.(".gh-dialog-overlay")) return true
-        if (el.closest?.(".settings-modal-overlay")) return true
-        if (el.closest?.(".settings-search-overlay")) return true
-        return false
-      })
-
-      if (!isInsidePanelOrPortal) {
-        // 如果开启了边缘吸附，点击外部应触发吸附（缩回边缘），而不是完全关闭
-        if (settings?.panel?.edgeSnap) {
-          if (!edgeSnapState) {
-            setEdgeSnapState(settings.panel.defaultPosition || "right")
-            setIsEdgePeeking(false)
-          }
-          // 如果已经是吸附状态，点击外部不做处理（保持吸附）
-        } else {
-          // 普通模式：点击外部关闭面板
-          setIsPanelOpen(false)
-        }
-      }
-    }
-
-    // 延迟添加监听，避免立即触发
-    const timer = setTimeout(() => {
-      document.addEventListener("click", handleClickOutside, true)
-    }, 100)
-
-    return () => {
-      clearTimeout(timer)
-      document.removeEventListener("click", handleClickOutside, true)
-    }
-  }, [
-    settings?.panel?.autoHide,
-    settings?.panel?.edgeSnap,
-    isPanelOpen,
-    edgeSnapState,
-    settings?.panel?.defaultPosition,
-  ])
+  }, [edgeSnapState, settings?.panel?.panelMode, syncEdgePeekWithPanelHover])
 
   const showAiStudioSubmitShortcutSyncToast = useCallback(
     (submitShortcut: "enter" | "ctrlEnter") => {
@@ -3050,7 +3194,7 @@ export const App = () => {
           cancelShortcutPeekTimer()
           // 当处于吸附状态时，鼠标进入面板应设置 isEdgePeeking = true
           // 这样 onMouseLeave 时才能正确隐藏
-          if (edgeSnapState && settings?.panel?.edgeSnap && !isEdgePeeking) {
+          if (edgeSnapState && settings?.panel?.panelMode === "edge-snap" && !isEdgePeeking) {
             setIsEdgePeeking(true)
           }
         }}
@@ -3066,21 +3210,7 @@ export const App = () => {
             // 检查是否有输入框正在聚焦（防止 IME 输入法弹出时隐藏）
             if (isInputFocusedRef.current) return
 
-            // 检查是否有任何菜单/对话框/弹窗处于打开状态
-            const interactionActive = isInteractionActiveRef.current
-            const portalElements = document.body.querySelectorAll(
-              ".conversations-dialog-overlay, .conversations-folder-menu, .conversations-tag-filter-menu, .prompt-modal, .gh-dialog-overlay, .settings-modal-overlay",
-            )
-            const searchOverlays = document.body.querySelectorAll(".settings-search-overlay")
-            const hasPortal = portalElements.length > 0 || searchOverlays.length > 0
-
-            // 如果有活跃交互或 Portal 元素，不隐藏面板
-            if (interactionActive || hasPortal) return
-
-            // 安全检查后隐藏面板
-            if (edgeSnapState && settings?.panel?.edgeSnap && isEdgePeeking) {
-              setIsEdgePeeking(false)
-            }
+            syncEdgePeekWithPanelHover()
           }, 200)
         }}
       />
@@ -3090,7 +3220,7 @@ export const App = () => {
         onPanelToggle={() => {
           if (!isPanelOpen) {
             // 展开面板：如果处于吸附状态，进入 peek 模式
-            if (edgeSnapState && settings?.panel?.edgeSnap) {
+            if (edgeSnapState && settings?.panel?.panelMode === "edge-snap") {
               setIsEdgePeeking(true)
             }
           } else {
@@ -3142,45 +3272,7 @@ export const App = () => {
       {/* 设置模态框 */}
       <SettingsModal
         isOpen={isSettingsOpen}
-        onClose={() => {
-          isSettingsOpenRef.current = false
-          setIsSettingsOpen(false)
-
-          // 关闭设置模态框后，检测面板位置，如果在边缘且自动吸附已开启则自动吸附
-          // 使用 settingsRef 确保读取到最新的设置值
-          const currentSettings = settingsRef.current
-          if (!currentSettings?.panel?.edgeSnap) return
-
-          // 查询面板元素（在 Plasmo Shadow DOM 内部）
-          // 先尝试在 Shadow DOM 内查找，再尝试普通 DOM
-          let panel: HTMLElement | null = null
-          const shadowHost = document.querySelector("plasmo-csui, #ophel-userscript-root")
-          if (shadowHost?.shadowRoot) {
-            panel = shadowHost.shadowRoot.querySelector(".gh-main-panel") as HTMLElement
-          }
-          if (!panel) {
-            panel = document.querySelector(".gh-main-panel") as HTMLElement
-          }
-
-          if (!panel) return
-
-          // 通过检查类名判断当前是否已吸附（避免闭包捕获问题）
-          const isAlreadySnapped =
-            panel.classList.contains("edge-snapped-left") ||
-            panel.classList.contains("edge-snapped-right")
-
-          if (isAlreadySnapped) return
-
-          // 检测面板位置
-          const rect = panel.getBoundingClientRect()
-          const snapThreshold = currentSettings?.panel?.edgeSnapThreshold ?? 30
-
-          if (rect.left < snapThreshold) {
-            setEdgeSnapState("left")
-          } else if (window.innerWidth - rect.right < snapThreshold) {
-            setEdgeSnapState("right")
-          }
-        }}
+        onClose={closeSettingsModal}
         siteId={adapter.getSiteId()}
       />
       <GlobalSearchOverlay
@@ -3202,6 +3294,13 @@ export const App = () => {
           commitSettingsSearchInputValue(nextValue)
           setActiveSearchSyntaxSuggestionIndex(-1)
           setSettingsSearchActiveIndex(0)
+          const normalizedValue = nextValue.trimStart()
+
+          if (normalizedValue.startsWith("tip:") && activeGlobalSearchCategory !== "tips") {
+            setActiveGlobalSearchCategory("tips")
+          } else if (!normalizedValue.startsWith("tip:") && activeGlobalSearchCategory === "tips") {
+            setActiveGlobalSearchCategory("all")
+          }
         }}
         hotkeyLabel={globalSearchOverlayHotkeyLabel}
         fuzzySearchToggleLabel={getLocalizedText({
@@ -3273,7 +3372,10 @@ export const App = () => {
         categories={GLOBAL_SEARCH_CATEGORY_DEFINITIONS.map((category) => ({
           id: category.id,
           label: resolvedGlobalSearchCategoryLabels[category.id],
-          count: globalSearchResultCounts[category.id],
+          count:
+            category.id === "tips" && activeGlobalSearchCategory !== "tips"
+              ? null
+              : globalSearchResultCounts[category.id],
         }))}
         activeCategoryId={activeGlobalSearchCategory}
         onSelectCategory={(categoryId) => {
@@ -3306,32 +3408,68 @@ export const App = () => {
           {
             id: "example:type-prompts",
             token: "type:prompts",
-            onClick: () => syncSettingsSearchInputAndQuery("type:prompts "),
+            onClick: () =>
+              applyGlobalSearchSyntaxSuggestion({
+                id: "example:type-prompts",
+                token: "type:prompts",
+                label: "type:prompts",
+                description: "",
+              }),
           },
           {
             id: "example:is-pinned",
             token: "is:pinned",
-            onClick: () => syncSettingsSearchInputAndQuery("is:pinned "),
+            onClick: () =>
+              applyGlobalSearchSyntaxSuggestion({
+                id: "example:is-pinned",
+                token: "is:pinned",
+                label: "is:pinned",
+                description: "",
+              }),
           },
           {
             id: "example:folder-inbox",
             token: "folder:inbox",
-            onClick: () => syncSettingsSearchInputAndQuery("folder:inbox "),
+            onClick: () =>
+              applyGlobalSearchSyntaxSuggestion({
+                id: "example:folder-inbox",
+                token: "folder:inbox",
+                label: "folder:inbox",
+                description: "",
+              }),
           },
           {
             id: "example:tag-work",
             token: "tag:work",
-            onClick: () => syncSettingsSearchInputAndQuery("tag:work "),
+            onClick: () =>
+              applyGlobalSearchSyntaxSuggestion({
+                id: "example:tag-work",
+                token: "tag:work",
+                label: "tag:work",
+                description: "",
+              }),
           },
           {
             id: "example:level-0",
             token: "level:0",
-            onClick: () => syncSettingsSearchInputAndQuery("level:0 "),
+            onClick: () =>
+              applyGlobalSearchSyntaxSuggestion({
+                id: "example:level-0",
+                token: "level:0",
+                label: "level:0",
+                description: "",
+              }),
           },
           {
             id: "example:date-7d",
             token: "date:7d",
-            onClick: () => syncSettingsSearchInputAndQuery("date:7d "),
+            onClick: () =>
+              applyGlobalSearchSyntaxSuggestion({
+                id: "example:date-7d",
+                token: "date:7d",
+                label: "date:7d",
+                description: "",
+              }),
           },
         ]}
         renderSearchResultItem={renderSearchResultItem}

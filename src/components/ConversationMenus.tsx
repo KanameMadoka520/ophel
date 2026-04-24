@@ -1,7 +1,19 @@
 import React, { useEffect, useRef, useState } from "react"
 import { createPortal } from "react-dom"
 
-import { CopyIcon, PageContentIcon } from "~components/icons"
+import {
+  CopyIcon,
+  ExportIcon,
+  JSONFileIcon,
+  MarkdownIcon,
+  PageContentIcon,
+  TXTFileIcon,
+} from "~components/icons"
+import { DeleteIcon } from "~components/icons/DeleteIcon"
+import { FolderMoveIcon } from "~components/icons/FolderMoveIcon"
+import { PinIcon } from "~components/icons/PinIcon"
+import { RenameIcon } from "~components/icons/RenameIcon"
+import { TagIcon } from "~components/icons/TagIcon"
 import type { Conversation, Folder } from "~core/conversation-manager"
 import { t } from "~utils/i18n"
 
@@ -188,7 +200,16 @@ export const FolderMenu: React.FC<FolderMenuProps> = ({
           onClose()
           onRename()
         }}>
-        {t("conversationsRename") || "重命名"}
+        <span
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: "16px",
+          }}>
+          <span>{t("conversationsRename") || "重命名"}</span>
+          <RenameIcon size={13} />
+        </span>
       </MenuButton>
       <MenuButton
         danger
@@ -196,7 +217,16 @@ export const FolderMenu: React.FC<FolderMenuProps> = ({
           onClose()
           onDelete()
         }}>
-        {t("conversationsDelete") || "删除"}
+        <span
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: "16px",
+          }}>
+          <span>{t("conversationsDelete") || "删除"}</span>
+          <DeleteIcon size={13} />
+        </span>
       </MenuButton>
     </ContextMenu>
   )
@@ -212,6 +242,7 @@ interface ConversationMenuProps {
   onTogglePin: () => void
   onSetTags: () => void
   onMoveTo: () => void
+  onExport: () => void
   onDelete: () => void
 }
 
@@ -223,6 +254,7 @@ export const ConversationMenu: React.FC<ConversationMenuProps> = ({
   onTogglePin,
   onSetTags,
   onMoveTo,
+  onExport,
   onDelete,
 }) => {
   return (
@@ -232,30 +264,84 @@ export const ConversationMenu: React.FC<ConversationMenuProps> = ({
           onClose()
           onRename()
         }}>
-        {t("conversationsRename") || "重命名"}
+        <span
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: "16px",
+          }}>
+          <span>{t("conversationsRename") || "重命名"}</span>
+          <RenameIcon size={13} />
+        </span>
       </MenuButton>
       <MenuButton
         onClick={() => {
           onClose()
           onTogglePin()
         }}>
-        {conversation.pinned
-          ? t("conversationsUnpin") || "取消置顶"
-          : t("conversationsPin") || "置顶"}
+        <span
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: "16px",
+          }}>
+          <span>
+            {conversation.pinned
+              ? t("conversationsUnpin") || "取消置顶"
+              : t("conversationsPin") || "置顶"}
+          </span>
+          <PinIcon size={13} filled={conversation.pinned} />
+        </span>
       </MenuButton>
       <MenuButton
         onClick={() => {
           onClose()
           onSetTags()
         }}>
-        {t("conversationsSetTags") || "设置标签"}
+        <span
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: "16px",
+          }}>
+          <span>{t("conversationsSetTags") || "设置标签"}</span>
+          <TagIcon size={13} />
+        </span>
       </MenuButton>
       <MenuButton
         onClick={() => {
           onClose()
           onMoveTo()
         }}>
-        {t("conversationsMoveTo") || "移动到..."}
+        <span
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: "16px",
+          }}>
+          <span>{t("conversationsMoveTo") || "移动到..."}</span>
+          <FolderMoveIcon size={13} />
+        </span>
+      </MenuButton>
+      <MenuButton
+        onClick={() => {
+          onClose()
+          onExport()
+        }}>
+        <span
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: "16px",
+          }}>
+          <span>{t("export") || "导出"}</span>
+          <ExportIcon size={13} />
+        </span>
       </MenuButton>
       <MenuButton
         danger
@@ -263,7 +349,16 @@ export const ConversationMenu: React.FC<ConversationMenuProps> = ({
           onClose()
           onDelete()
         }}>
-        {t("conversationsDelete") || "删除"}
+        <span
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: "16px",
+          }}>
+          <span>{t("conversationsDelete") || "删除"}</span>
+          <DeleteIcon size={13} />
+        </span>
       </MenuButton>
     </ContextMenu>
   )
@@ -294,7 +389,7 @@ export const ExportMenu: React.FC<ExportMenuProps> = ({
           onExportMarkdown()
         }}>
         <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-          <PageContentIcon size={14} />
+          <MarkdownIcon size={14} />
           <span>{t("exportToMarkdown") || "Markdown"}</span>
         </div>
       </MenuButton>
@@ -304,7 +399,7 @@ export const ExportMenu: React.FC<ExportMenuProps> = ({
           onExportJSON()
         }}>
         <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-          <CopyIcon size={14} />
+          <JSONFileIcon size={14} />
           <span>{t("exportToJSON") || "JSON"}</span>
         </div>
       </MenuButton>
@@ -314,7 +409,7 @@ export const ExportMenu: React.FC<ExportMenuProps> = ({
           onExportTXT()
         }}>
         <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-          <PageContentIcon size={14} />
+          <TXTFileIcon size={14} />
           <span>{t("exportToTXT") || "TXT"}</span>
         </div>
       </MenuButton>

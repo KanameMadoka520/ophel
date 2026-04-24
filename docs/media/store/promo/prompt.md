@@ -8,8 +8,8 @@ A professional 440x280 pixel promotional tile for Chrome Extension "Ophel Atlas"
 COMPOSITION:
 
 - Left Side: Bold white text "Ophel Atlas" with a modern abstract eye logo above it. Subtitle "All-In-One AI Assistant".
-- Right Side: A checklist of 3 key features in clean, sharp text: "Smart Outline", "Chat Organizer", "Prompt Manager".
-- Bottom: A horizontal row of 5 uniform glass-style icons (Gemini, ChatGPT, Claude, Grok, AI Studio).
+- Right Side: A checklist of 3 key features in clean, sharp text: "Outline Navigator", "Chat Organizer", "Prompt Manager".
+- Bottom: A horizontal row of 10 uniform glass-style icons (Gemini, ChatGPT, Claude, Grok, AI Studio, Doubao, DeepSeek, Kimi, ChatGLM, Qwen).
 
 STYLE:
 
@@ -23,24 +23,10 @@ STYLE:
 ## marquee-promo
 
 ```markdown
-A cinematic 1400x560 pixel promotional banner for "Ophel Atlas". Premium dark software marketing aesthetic.
+A high-fidelity, photorealistic cinematic marketing banner for the "Ophel Atlas" Chrome Extension, 1400x560 pixels.
 
-COMPOSITION & TEXT:
-
-- CENTER/LEFT FOCUS: Huge, bold, modern white typography: "Ophel Atlas".
-- SLOGAN: Elegant, crisp subtitle text below the title: "Turn Conversations into Knowledge, Not Just History".
-- FEATURE HIGHLIGHTS: Three glass-pill tags floating nearby: "Smart Outline", "Chat Organizer", "Prompt Library".
-
-VISUALS:
-
-- BACKGROUND: Deep cosmic blue and purple gradient space, with subtle "neural network" connecting lines or a "knowledge graph" constellation effect (representing knowledge), fading into a clean dark void.
-- BOTTOM: A glowing alignment of 5 platform icons (Gemini, ChatGPT, Claude, Grok, AI Studio).
-
-STYLE:
-
-- Minimalist but expensive-looking.
-- Volumetric lighting, glassmorphism, 8k resolution, highly detailed, sharp text rendering.
-- Tech-forward but human-centric.
-
---ar 5:2 --v 6.0
+- **Background:** Deep cosmic void, gradient from rich midnight blue to velvety purple aurora, layered with a glowing, intricate neural network pattern of connecting lines and a subtle knowledge graph constellation. Soft volumetric fog and anamorphic lens flares.
+- **Typographic Center/Left:** Huge, perfectly centered-left, modern white sans-serif typography: "Ophel Atlas". Directly below the title, an elegant, crisp subtitle text: "Turn Conversations into Knowledge, Not Just History". Nearby, three floating, frosted-glass-pill tags with beveled edges and precise white text: "Smart Outline", "Chat Organizer", "Prompt Library".
+- **Bottom:** A clean, perfectly aligned horizontal dock containing exactly 10 uniform glassmorphic application icons (Gemini, ChatGPT, Claude, Grok, AI Studio, Doubao, DeepSeek, Kimi, ChatGLM, Qwen), arranged in a subtle crescent glow, fading towards the clean dark edge.
+- **Style:** Minimalist yet expensive-looking, advanced dark grey tones, precise typographic layout, 8k detail, ultra-sharp text rendering, highly harmonious and tech-forward lighting.
 ```

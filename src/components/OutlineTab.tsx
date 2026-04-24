@@ -1,3 +1,6 @@
+import { MagicCodex } from "~components/MagicCodex"
+import { isMacOS } from "~constants/shortcuts"
+import { buildStructuredTips } from "~utils/build-structured-tips"
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 
 import {
@@ -24,6 +27,7 @@ import { showToast } from "~utils/toast"
 interface OutlineTabProps {
   manager: OutlineManager
   onJumpBefore?: () => void
+  isCodexOpen?: boolean
 }
 
 const buildVisibilityMaps = (
@@ -144,8 +148,6 @@ const OutlineNodeView: React.FC<{
   onClick: (node: OutlineNode) => void
   onCopy: (e: React.MouseEvent, node: OutlineNode) => void
   onToggleBookmark: (e: React.MouseEvent, node: OutlineNode) => void
-  activeIndex: number | null
-  visibleHighlightIndex: number | null
   setItemRef: (index: number, el: HTMLElement | null) => void
   visibleMap: Record<number, boolean>
   searchQuery: string
@@ -156,15 +158,11 @@ const OutlineNodeView: React.FC<{
   onClick,
   onCopy,
   onToggleBookmark,
-  activeIndex,
-  visibleHighlightIndex,
   setItemRef,
   visibleMap,
   searchQuery,
   extractUserQueryText,
 }) => {
-  const isActive = node.index === activeIndex
-  const isVisibleHighlight = node.index === visibleHighlightIndex
   const hasChildren = node.children && node.children.length > 0
   // Legacy: isExpanded 直接看 hasChildren 和 collapsed，不考虑搜索
   // 箭头始终显示（只要有子节点），因为用户可能想手动展开查看不匹配的子节点
@@ -178,8 +176,6 @@ const OutlineNodeView: React.FC<{
     `outline-level-${node.relativeLevel}`,
     node.isUserQuery ? "user-query-node" : "",
     node.isGhost ? "ghost-node" : "", // Add ghost styling class
-    isActive ? "sync-highlight" : "",
-    isVisibleHighlight ? "sync-highlight-visible" : "",
     !shouldShow ? "outline-hidden" : "",
   ]
     .filter(Boolean)
@@ -373,8 +369,6 @@ const OutlineNodeView: React.FC<{
             onClick={onClick}
             onCopy={onCopy}
             onToggleBookmark={onToggleBookmark}
-            activeIndex={activeIndex}
-            visibleHighlightIndex={visibleHighlightIndex}
             setItemRef={setItemRef}
             visibleMap={visibleMap}
             searchQuery={searchQuery}
@@ -385,16 +379,26 @@ const OutlineNodeView: React.FC<{
   )
 }
 
-export const OutlineTab: React.FC<OutlineTabProps> = ({ manager, onJumpBefore }) => {
+export const OutlineTab: React.FC<OutlineTabProps> = ({
+  manager,
+  onJumpBefore,
+  isCodexOpen = false,
+}) => {
   // 获取设置 - 使用 Zustand Store
   const { settings } = useSettingsStore()
+  const currentSettings = settings
+  const isMac = React.useMemo(() => isMacOS(), [])
+  const shortcutNotSetLabel = t("shortcutNotSet") || "未设置"
+
+  const structuredTips = React.useMemo(
+    () => buildStructuredTips(currentSettings.shortcuts?.keybindings, isMac, shortcutNotSetLabel),
+    [currentSettings.shortcuts?.keybindings, currentSettings.language, isMac, shortcutNotSetLabel],
+  )
 
   // Initialize state from manager to prevent flicker
   const initialState = manager.getState()
 
   const [tree, setTree] = useState<OutlineNode[]>(initialState.tree)
-  const [activeIndex, setActiveIndex] = useState<number | null>(null) // manager doesn't track activeIndex
-  const [visibleHighlightIndex, setVisibleHighlightIndex] = useState<number | null>(null)
   const [searchQuery, setSearchQuery] = useState(manager.getSearchQuery())
   const [isAllExpanded, setIsAllExpanded] = useState(initialState.isAllExpanded)
   const [showUserQueries, setShowUserQueries] = useState(initialState.includeUserQueries)
@@ -528,24 +532,32 @@ export const OutlineTab: React.FC<OutlineTabProps> = ({ manager, onJumpBefore })
     }
   }, [tree]) // 依赖 tree，当 tree 变化（渲染完成）后执行
 
+  // 滚动同步高亮：直接操作 DOM class，不触发 React re-render
   const updateActiveIndex = useCallback((idx: number | null) => {
-    if (activeIndexRef.current !== idx) {
-      activeIndexRef.current = idx
-      setActiveIndex(idx)
-    }
+    const prevIdx = activeIndexRef.current
+    if (prevIdx === idx) return
+    const map = itemRefMap.current
+    if (prevIdx !== null) map.get(prevIdx)?.classList.remove("sync-highlight")
+    if (idx !== null) map.get(idx)?.classList.add("sync-highlight")
+    activeIndexRef.current = idx
   }, [])
 
   const updateVisibleHighlightIndex = useCallback((idx: number | null) => {
-    if (visibleHighlightRef.current !== idx) {
-      visibleHighlightRef.current = idx
-      setVisibleHighlightIndex(idx)
-    }
+    const prevIdx = visibleHighlightRef.current
+    if (prevIdx === idx) return
+    const map = itemRefMap.current
+    if (prevIdx !== null) map.get(prevIdx)?.classList.remove("sync-highlight-visible")
+    if (idx !== null) map.get(idx)?.classList.add("sync-highlight-visible")
+    visibleHighlightRef.current = idx
   }, [])
 
   const setItemRef = useCallback((index: number, el: HTMLElement | null) => {
     const map = itemRefMap.current
     if (el) {
       map.set(index, el)
+      // 树重建后 DOM 元素更新，重新应用当前高亮 class
+      if (index === activeIndexRef.current) el.classList.add("sync-highlight")
+      if (index === visibleHighlightRef.current) el.classList.add("sync-highlight-visible")
     } else {
       map.delete(index)
     }
@@ -613,10 +625,10 @@ export const OutlineTab: React.FC<OutlineTabProps> = ({ manager, onJumpBefore })
 
     let scrollContainer: HTMLElement | null = null
     let retryCount = 0
-    let retryTimer: NodeJS.Timeout
+    let retryTimer: ReturnType<typeof setTimeout>
     let lastScrollHeight = 0
     let resizeObserver: ResizeObserver | null = null
-    let staleTimer: NodeJS.Timeout | null = null
+    let staleTimer: ReturnType<typeof setTimeout> | null = null
     let idleHandle: number | null = null
     const staleDebounceMs = 300
     const staleIdleTimeoutMs = 500
@@ -850,12 +862,9 @@ export const OutlineTab: React.FC<OutlineTabProps> = ({ manager, onJumpBefore })
         if (onJumpBefore && !anchorCaptured) {
           await onJumpBefore()
         }
-        // 传入 __bypassLock: true 以绕过 ScrollLockManager 的拦截
-        targetElement.scrollIntoView({
-          behavior: "instant",
-          block: "start",
-          __bypassLock: true,
-        } as any)
+        // 通过 adapter 滚动——避免 scrollIntoView 在 Shadow DOM 场景下
+        // 意外滚动外层容器（如 Gemini Enterprise 的 mat-sidenav-content）
+        manager.scrollToOutlineTarget(targetElement as HTMLElement)
 
         // 若阅读历史 Position Keeper 正在锁定位置，同步更新锁目标到新位置
         // 这样 Position Keeper 继续保护新位置，不会跳回旧位置或被平台自动滚动覆盖
@@ -1395,36 +1404,35 @@ export const OutlineTab: React.FC<OutlineTabProps> = ({ manager, onJumpBefore })
 
           if (bookmarkMode && !hasVisibleBookmarks && !searchQuery) {
             return (
-              <div
-                style={{
-                  textAlign: "center",
-                  color: "var(--gh-text-tertiary, #9ca3af)",
-                  marginTop: "40px",
-                  display: "flex",
-                  flexDirection: "column",
-                  alignItems: "center",
-                  gap: "8px",
-                }}>
+              <div className="outline-empty-state">
                 <div
-                  style={{
-                    width: "40px",
-                    height: "40px",
-                    borderRadius: "50%",
-                    background: "rgba(245, 158, 11, 0.1)",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    color: "#f59e0b",
-                    marginBottom: "8px",
-                  }}>
+                  className="outline-empty-state-icon"
+                  style={{ background: "rgba(245, 158, 11, 0.1)", color: "#f59e0b" }}
+                  aria-hidden="true">
                   <StarIcon size={20} filled={true} color="#f59e0b" />
                 </div>
-                <div
-                  style={{ fontSize: "14px", fontWeight: 500, color: "var(--gh-text, #374151)" }}>
+                <div className="outline-empty-state-title">
                   {t("outlineNoBookmarks") || "暂无收藏"}
                 </div>
-                <div style={{ fontSize: "12px", opacity: 0.7 }}>
+                <div className="outline-empty-state-desc">
                   {t("outlineAddBookmarkHint") || "点击条目旁的星号添加收藏"}
+                </div>
+
+                <div
+                  style={{
+                    marginTop: "32px",
+                    width: "100%",
+                    display: "flex",
+                    justifyContent: "center",
+                  }}>
+                  {!isCodexOpen && (
+                    <MagicCodex
+                      isOpen={true}
+                      onClose={() => {}}
+                      tips={structuredTips}
+                      isStatic={true}
+                    />
+                  )}
                 </div>
               </div>
             )
@@ -1434,7 +1442,7 @@ export const OutlineTab: React.FC<OutlineTabProps> = ({ manager, onJumpBefore })
             return (
               <div className="outline-empty-state">
                 <div className="outline-empty-state-icon" aria-hidden="true">
-                  <OutlineIcon size={18} color="currentColor" />
+                  <OutlineIcon size={20} color="currentColor" />
                 </div>
                 <div className="outline-empty-state-title">
                   {t("outlineEmpty") || "暂无大纲内容"}
@@ -1445,6 +1453,23 @@ export const OutlineTab: React.FC<OutlineTabProps> = ({ manager, onJumpBefore })
                     <span className="outline-empty-state-desc-line">
                       {emptyDescriptionSecondLine}
                     </span>
+                  )}
+                </div>
+
+                <div
+                  style={{
+                    marginTop: "32px",
+                    width: "100%",
+                    display: "flex",
+                    justifyContent: "center",
+                  }}>
+                  {!isCodexOpen && (
+                    <MagicCodex
+                      isOpen={true}
+                      onClose={() => {}}
+                      tips={structuredTips}
+                      isStatic={true}
+                    />
                   )}
                 </div>
               </div>
@@ -1461,8 +1486,6 @@ export const OutlineTab: React.FC<OutlineTabProps> = ({ manager, onJumpBefore })
                   onClick={handleClick}
                   onCopy={handleCopy}
                   onToggleBookmark={handleToggleBookmark}
-                  activeIndex={activeIndex}
-                  visibleHighlightIndex={visibleHighlightIndex}
                   setItemRef={setItemRef}
                   visibleMap={visibleMap}
                   searchQuery={searchQuery}

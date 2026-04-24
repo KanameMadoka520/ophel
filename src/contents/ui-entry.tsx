@@ -32,8 +32,35 @@ export const config: PlasmoCSConfig = {
 
 export const getStyle = () => {
   const style = document.createElement("style")
+
+  // 注入 Inter 字体（仅扩展版；油猴版无此 @font-face，自动回退到 system-ui）
+  const interFontUrl = chrome.runtime.getURL("assets/fonts/InterVariable.woff2")
+  const interFontFace = `
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url('${interFontUrl}') format('woff2');
+}
+`
+
+  // 读取缓存的主题 CSS，预注入到 Shadow DOM 初始样式，避免主题闪烁（FOUC）
+  let earlyThemeCSS = ""
+  try {
+    earlyThemeCSS = localStorage.getItem("ophel_ext_theme_cache") || ""
+  } catch {}
+
   // 合并所有 CSS 样式
-  style.textContent = cssText + "\n" + conversationsCssText + "\n" + settingsCssText
+  style.textContent =
+    interFontFace +
+    "\n" +
+    cssText +
+    "\n" +
+    conversationsCssText +
+    "\n" +
+    settingsCssText +
+    (earlyThemeCSS ? "\n" + earlyThemeCSS : "")
   return style
 }
 

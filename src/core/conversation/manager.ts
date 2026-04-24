@@ -61,11 +61,11 @@ export class ConversationManager {
   private sidebarMutationSyncStop: (() => void) | null = null
   private observerContainer: Node | null = null
   private titleWatcher: any = null // DOMToolkit watcher instance
-  private pollInterval: NodeJS.Timeout | null = null
-  private currentConversationSyncTimer: NodeJS.Timeout | null = null
-  private remoteSnapshotSyncTimer: NodeJS.Timeout | null = null
+  private pollInterval: ReturnType<typeof setTimeout> | null = null
+  private currentConversationSyncTimer: ReturnType<typeof setTimeout> | null = null
+  private remoteSnapshotSyncTimer: ReturnType<typeof setTimeout> | null = null
   private remoteSnapshotSyncInFlight: Promise<void> | null = null
-  private geminiMigrationTimer: NodeJS.Timeout | null = null
+  private geminiMigrationTimer: ReturnType<typeof setTimeout> | null = null
   private geminiMigrationRetryCount = 0
 
   // Settings
@@ -813,6 +813,10 @@ export class ConversationManager {
 
   moveFolder(id: string, direction: "up" | "down") {
     getFoldersStore().moveFolder(id, direction)
+  }
+
+  reorderFolders(orderedIds: string[]) {
+    getFoldersStore().reorderFolders(orderedIds)
   }
 
   // ================= Conversation Operations =================

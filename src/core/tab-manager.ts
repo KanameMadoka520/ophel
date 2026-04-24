@@ -6,17 +6,15 @@ import {
   EVENT_MONITOR_COMPLETE,
   EVENT_MONITOR_INIT,
   EVENT_MONITOR_START,
-  EVENT_PRIVACY_TOGGLE,
   type MonitorEventPayload,
 } from "~utils/messaging"
 import { type Settings } from "~utils/storage"
-import { showToast } from "~utils/toast"
 
 export class TabManager {
   private adapter: SiteAdapter
   private settings: Settings["tab"]
   private isRunning = false
-  private intervalId: NodeJS.Timeout | null = null
+  private intervalId: ReturnType<typeof setTimeout> | null = null
   private titleObserver: MutationObserver | null = null
   private expectedTitle: string | null = null
   private isApplyingManagedTitle = false
@@ -519,13 +517,6 @@ export class TabManager {
       this.beginNetworkGeneration(payload as MonitorEventPayload | undefined)
     } else if (type === EVENT_MONITOR_COMPLETE) {
       this.onAiComplete()
-    } else if (type === EVENT_PRIVACY_TOGGLE) {
-      // 切换隐私模式
-      const isPrivacy = this.togglePrivacyMode()
-      // 动态导入 toast 显示提示
-      setTimeout(() => {
-        showToast(isPrivacy ? "隐私模式已开启" : "隐私模式已关闭", 2000)
-      }, 0)
     }
   }
 
