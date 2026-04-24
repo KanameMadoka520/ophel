@@ -185,7 +185,17 @@ const EXPORT_ASSISTANT_SELECTOR = `[${EXPORT_ROLE_ATTR}="assistant"]`
 
 interface PerplexityThreadListEntry {
   slug?: unknown
+  thread_url_slug?: unknown
+  link?: unknown
   title?: unknown
+  uuid?: unknown
+  context_uuid?: unknown
+  id?: unknown
+}
+
+interface PerplexityThreadIdentifiers {
+  slug: string
+  apiIds: string[]
 }
 
 function getPerplexityOrigin(): string {
@@ -256,13 +266,8 @@ export class PerplexityAdapter extends SiteAdapter {
   getConversationTitle(): string | null {
     const sessionId = this.getSessionId()
     if (sessionId) {
-      const sidebarLink = this.findSidebarConversationLink(sessionId)
-      if (sidebarLink) {
-        const sidebarTitle = this.extractConversationTitle(sidebarLink, sessionId)
-        if (sidebarTitle) {
-          return sidebarTitle
-        }
-      }
+      const sidebarTitle = this.getSidebarConversationTitle(sessionId)
+      if (sidebarTitle) return sidebarTitle
     }
 
     const titleElement = document.querySelector(THREAD_TITLE_SELECTOR)
@@ -282,7 +287,7 @@ export class PerplexityAdapter extends SiteAdapter {
 
     return {
       id,
-      title: this.getConversationTitle() || "",
+      title: this.getConversationTitle() || id,
       url: window.location.href,
       cid: this.getCurrentCid() || undefined,
     }
@@ -493,20 +498,57 @@ export class PerplexityAdapter extends SiteAdapter {
       enablePolling: true,
       pollIntervalMs: 1500,
       extractInfo: (element) => this.extractConversationInfo(element),
-      getTitleElement: (element) => element.querySelector("span, div[dir='auto']") || element,
+      getTitleElement: (element) => this.findConversationItemContainer(element) || element,
     }
+  }
+
+  async deleteConversationsOnSite(
+    targets: ConversationDeleteTarget[],
+  ): Promise<SiteDeleteConversationResult[]> {
+    const results: SiteDeleteConversationResult[] = []
+    const deletedSlugs = new Set<string>()
+
+    for (const target of targets) {
+      const slug =
+        this.parseThreadSlugFromUrl(target.url || "") ||
+        this.parseThreadSlugFromUrl(target.id) ||
+        target.id
+      const result = await this.deleteConversationOnSite(target)
+      results.push(result)
+
+      if (result.success && slug) {
+        deletedSlugs.add(slug)
+      }
+    }
+
+    this.navigateAwayIfCurrentThreadWasDeleted(deletedSlugs)
+    return results
   }
 
   async deleteConversationOnSite(
     target: ConversationDeleteTarget,
   ): Promise<SiteDeleteConversationResult> {
-    const result = await this.deleteConversationViaUi(target.id)
+    const identifiers = await this.resolveThreadIdentifiers(target.id, target.url)
+    const apiResult = await this.deleteConversationViaNativeApi(target.id, identifiers)
+    if (apiResult.success) {
+      this.syncConversationListAfterDelete(identifiers.slug)
+      if (identifiers.slug !== target.id) {
+        this.syncConversationListAfterDelete(target.id)
+      }
+      return {
+        id: target.id,
+        success: true,
+        method: "api",
+      }
+    }
+
+    const result = await this.deleteConversationViaUi(identifiers.slug)
 
     return {
       id: target.id,
       success: result.success,
-      method: result.success ? "ui" : "none",
-      reason: result.success ? undefined : result.reason,
+      method: result.success ? "ui" : apiResult.method,
+      reason: result.success ? undefined : result.reason || apiResult.reason,
     }
   }
 
@@ -514,11 +556,24 @@ export class PerplexityAdapter extends SiteAdapter {
     target: { id: string; title?: string; url?: string },
     newTitle: string,
   ): Promise<{ success: boolean; method: "api" | "ui" | "none"; reason?: string }> {
-    const result = await this.renameConversationViaUi(target.id, newTitle)
+    const identifiers = await this.resolveThreadIdentifiers(target.id, target.url)
+    const apiResult = await this.renameConversationViaNativeApi(identifiers, newTitle)
+    if (apiResult.success) {
+      this.syncConversationListAfterRename(identifiers.slug, newTitle)
+      if (identifiers.slug !== target.id) {
+        this.syncConversationListAfterRename(target.id, newTitle)
+      }
+      return {
+        success: true,
+        method: "api",
+      }
+    }
+
+    const result = await this.renameConversationViaUi(identifiers.slug, newTitle)
     return {
       success: result.success,
       method: "ui",
-      reason: result.success ? undefined : result.reason,
+      reason: result.success ? undefined : result.reason || apiResult.reason,
     }
   }
 
@@ -1159,12 +1214,208 @@ export class PerplexityAdapter extends SiteAdapter {
     }
   }
 
+  private async resolveThreadIdentifiers(
+    id: string,
+    targetUrl?: string,
+  ): Promise<PerplexityThreadIdentifiers> {
+    const slug =
+      this.parseThreadSlugFromUrl(targetUrl || "") || this.parseThreadSlugFromUrl(id) || id.trim()
+
+    const apiIds = new Set<string>()
+    this.addThreadApiIdCandidate(apiIds, slug)
+    this.addThreadApiIdCandidate(apiIds, id)
+
+    const metadata = await this.fetchThreadMetadata(slug)
+    if (metadata) {
+      this.collectThreadApiIdsFromPayload(metadata).forEach((candidate) =>
+        this.addThreadApiIdCandidate(apiIds, candidate),
+      )
+    }
+
+    return {
+      slug,
+      apiIds: Array.from(apiIds),
+    }
+  }
+
+  private async deleteConversationViaNativeApi(
+    resultId: string,
+    identifiers: PerplexityThreadIdentifiers,
+  ): Promise<SiteDeleteConversationResult> {
+    let lastReason = "delete_api_not_attempted"
+
+    for (const apiId of identifiers.apiIds) {
+      const attempts: Array<{ endpoint: string; body: Record<string, unknown> }> = [
+        {
+          endpoint: "/rest/thread",
+          body: {
+            entry_uuids: [apiId],
+            read_write_token: "",
+          },
+        },
+        {
+          endpoint: "/rest/thread/delete_thread_by_entry_uuid",
+          body: {
+            entry_uuid: apiId,
+            read_write_token: "",
+          },
+        },
+      ]
+
+      for (const attempt of attempts) {
+        try {
+          const response = await fetch(buildPerplexityUrl(attempt.endpoint), {
+            method: "DELETE",
+            credentials: "include",
+            headers: this.buildPerplexityJsonHeaders(),
+            body: JSON.stringify(attempt.body),
+          })
+
+          if (response.ok) {
+            return { id: resultId, success: true, method: "api" }
+          }
+
+          lastReason = this.toPerplexityApiHttpReason("delete", response.status)
+        } catch {
+          lastReason = "delete_api_request_failed"
+        }
+      }
+    }
+
+    return {
+      id: resultId,
+      success: false,
+      method: "api",
+      reason: lastReason,
+    }
+  }
+
+  private async renameConversationViaNativeApi(
+    identifiers: PerplexityThreadIdentifiers,
+    newTitle: string,
+  ): Promise<{ success: boolean; reason?: string }> {
+    const normalizedTitle = newTitle.trim()
+    if (!normalizedTitle) {
+      return { success: false, reason: "empty_title" }
+    }
+
+    let lastReason = "rename_api_not_attempted"
+    for (const apiId of identifiers.apiIds) {
+      try {
+        const response = await fetch(buildPerplexityUrl("/rest/thread/set_thread_title"), {
+          method: "POST",
+          credentials: "include",
+          headers: this.buildPerplexityJsonHeaders(),
+          body: JSON.stringify({
+            context_uuid: apiId,
+            title: normalizedTitle,
+            read_write_token: "",
+          }),
+        })
+
+        if (response.ok) {
+          return { success: true }
+        }
+
+        lastReason = this.toPerplexityApiHttpReason("rename", response.status)
+      } catch {
+        lastReason = "rename_api_request_failed"
+      }
+    }
+
+    return { success: false, reason: lastReason }
+  }
+
+  private buildPerplexityJsonHeaders(): Record<string, string> {
+    return {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+    }
+  }
+
+  private toPerplexityApiHttpReason(action: "delete" | "rename", status: number): string {
+    switch (status) {
+      case 401:
+      case 403:
+        return `${action}_api_unauthorized`
+      case 404:
+        return `${action}_api_not_found`
+      case 429:
+        return `${action}_api_rate_limited`
+      default:
+        return `${action}_api_http_${status || 0}`
+    }
+  }
+
+  private async fetchThreadMetadata(identifier: string): Promise<unknown | null> {
+    if (!identifier) return null
+
+    try {
+      const url = new URL(`/rest/thread/${encodeURIComponent(identifier)}`, getPerplexityOrigin())
+      url.searchParams.set("with_parent_info", "false")
+      url.searchParams.set("with_schematized_response", "true")
+      url.searchParams.set("version", "2.18")
+      url.searchParams.set("source", "default")
+      url.searchParams.set("limit", "0")
+      url.searchParams.set("offset", "0")
+      url.searchParams.set("from_first", "false")
+
+      const response = await fetch(url.toString(), {
+        method: "GET",
+        credentials: "include",
+        headers: {
+          Accept: "application/json",
+        },
+      })
+      if (!response.ok) return null
+      return response.json()
+    } catch {
+      return null
+    }
+  }
+
+  private collectThreadApiIdsFromPayload(payload: unknown): string[] {
+    const candidates: string[] = []
+    const seen = new Set<unknown>()
+    const keyPattern =
+      /^(context_uuid|contextuuid|uuid|entry_uuid|entryuuid|backend_uuid|backenduuid|id)$/i
+
+    const walk = (value: unknown, depth: number): void => {
+      if (!value || depth > 5 || seen.has(value)) return
+      if (typeof value !== "object") return
+      seen.add(value)
+
+      if (Array.isArray(value)) {
+        value.slice(0, 20).forEach((item) => walk(item, depth + 1))
+        return
+      }
+
+      Object.entries(value as Record<string, unknown>).forEach(([key, child]) => {
+        if (typeof child === "string" && keyPattern.test(key)) {
+          candidates.push(child)
+        }
+        walk(child, depth + 1)
+      })
+    }
+
+    walk(payload, 0)
+    return candidates
+  }
+
+  private addThreadApiIdCandidate(candidates: Set<string>, value: string | null | undefined): void {
+    const normalized = (value || "").trim()
+    if (!normalized || normalized === "new") return
+    if (/[\s/?#]/.test(normalized)) return
+    candidates.add(normalized)
+  }
+
   private async deleteConversationViaUi(
     id: string,
   ): Promise<{ success: boolean; reason?: string }> {
     let sidebarReason: string | undefined
-    const sidebarLink = await this.waitForValue(() => this.findSidebarConversationLink(id), 600)
+    const sidebarLink = await this.findSidebarConversationLinkWithScroll(id, 1_200)
     if (sidebarLink) {
+      this.ensureElementVisible(sidebarLink)
       const container = this.findConversationItemContainer(sidebarLink)
       const actionButton = await this.openThreadActionMenu({
         preferredContainer: container,
@@ -1184,20 +1435,11 @@ export class PerplexityAdapter extends SiteAdapter {
       }
     }
 
-    if (this.getSessionId() !== id && !this.navigateToConversation(id)) {
-      return { success: false, reason: sidebarReason || "navigate_failed" }
-    }
-
-    const ready = await this.waitForCondition(
-      () => this.getSessionId() === id,
-      DELETE_FLOW_TIMEOUT_MS,
-    )
-    if (!ready) {
-      void this.showPerplexityDebugToast(
-        `[Perplexity Debug] delete target did not become active: ${id}`,
-        "perplexity-delete-session-not-ready",
-      )
-      return { success: false, reason: sidebarReason || "session_not_ready" }
+    if (this.getSessionId() !== id) {
+      return {
+        success: false,
+        reason: sidebarReason || "target_not_visible_and_api_failed",
+      }
     }
 
     const actionButton = await this.openThreadActionMenu({
@@ -1232,15 +1474,57 @@ export class PerplexityAdapter extends SiteAdapter {
       return { success: false, reason: "empty_title" }
     }
 
-    const sidebarLink = await this.waitForValue(() => this.findSidebarConversationLink(id), 1_200)
-    if (!sidebarLink) {
+    const sidebarResult = await this.tryRenameConversationFromSidebar(id, normalizedTitle)
+    if (sidebarResult.success) {
+      this.syncConversationListAfterRename(id, normalizedTitle)
+      return { success: true }
+    }
+
+    if (this.getSessionId() !== id) {
+      return {
+        success: false,
+        reason: sidebarResult.reason || "target_not_visible_and_api_failed",
+      }
+    }
+
+    const actionButton = await this.openThreadActionMenu({
+      preferredContainer: this.getConversationHeaderContainer(),
+      triggerScope: document.body,
+      menuOpenedCheck: (button) => this.findOpenRenameMenuItem(button) !== null,
+    })
+    if (!actionButton) {
       void this.showPerplexityDebugToast(
-        `[Perplexity Debug] rename target not found in sidebar: ${id}`,
-        "perplexity-rename-sidebar-link",
+        `[Perplexity Debug] rename action button not found on active conversation: ${id}`,
+        "perplexity-rename-active-action-button",
       )
+      return {
+        success: false,
+        reason: sidebarResult.reason || "rename_action_button_not_found",
+      }
+    }
+
+    const renameResult = await this.completeRenameFromOpenMenu(id, normalizedTitle, actionButton)
+    if (renameResult.success) {
+      this.syncConversationListAfterRename(id, normalizedTitle)
+      return { success: true }
+    }
+
+    return {
+      success: false,
+      reason: renameResult.reason || sidebarResult.reason || "rename_not_observed",
+    }
+  }
+
+  private async tryRenameConversationFromSidebar(
+    id: string,
+    normalizedTitle: string,
+  ): Promise<{ success: boolean; reason?: string }> {
+    const sidebarLink = await this.findSidebarConversationLinkWithScroll(id, 2_500)
+    if (!sidebarLink) {
       return { success: false, reason: "sidebar_link_not_found" }
     }
 
+    this.ensureElementVisible(sidebarLink)
     const container = this.findConversationItemContainer(sidebarLink)
     const actionButton = await this.openThreadActionMenu({
       preferredContainer: container,
@@ -1255,6 +1539,14 @@ export class PerplexityAdapter extends SiteAdapter {
       return { success: false, reason: "rename_action_button_not_found" }
     }
 
+    return this.completeRenameFromOpenMenu(id, normalizedTitle, actionButton)
+  }
+
+  private async completeRenameFromOpenMenu(
+    id: string,
+    normalizedTitle: string,
+    actionButton: HTMLElement,
+  ): Promise<{ success: boolean; reason?: string }> {
     const renameItem = await this.waitForValue(
       () => this.findOpenRenameMenuItem(actionButton),
       DELETE_FLOW_TIMEOUT_MS,
@@ -1300,15 +1592,10 @@ export class PerplexityAdapter extends SiteAdapter {
 
     this.simulateClick(saveButton)
 
-    const renamed = await this.waitForCondition(() => {
-      const link = this.findSidebarConversationLink(id)
-      if (!link) return false
-      const title = this.extractConversationTitle(link, id)
-      return (
-        this.normalizeConversationTitle(title, id) ===
-        this.normalizeConversationTitle(normalizedTitle, id)
-      )
-    }, 3_000)
+    const renamed = await this.waitForCondition(
+      () => this.hasConversationTitleSignal(id, normalizedTitle),
+      3_000,
+    )
 
     if (!renamed) {
       void this.showPerplexityDebugToast(
@@ -1318,7 +1605,6 @@ export class PerplexityAdapter extends SiteAdapter {
       return { success: false, reason: "rename_not_observed" }
     }
 
-    this.syncConversationListAfterRename(id, normalizedTitle)
     return { success: true }
   }
 
@@ -1337,7 +1623,7 @@ export class PerplexityAdapter extends SiteAdapter {
 
   private syncConversationListAfterDelete(id: string): void {
     this.threadListCache = this.threadListCache.filter((item) => item.id !== id)
-    this.threadListCacheExpiresAt = Math.min(this.threadListCacheExpiresAt, Date.now() + 10_000)
+    this.threadListCacheExpiresAt = 0
 
     this.getNativeSidebarConversationLinks().forEach((anchor) => {
       if (this.parseThreadSlugFromUrl(anchor.getAttribute("href") || anchor.href || "") !== id)
@@ -1348,11 +1634,27 @@ export class PerplexityAdapter extends SiteAdapter {
     })
   }
 
+  private navigateAwayIfCurrentThreadWasDeleted(deletedSlugs: Set<string>): void {
+    if (deletedSlugs.size === 0) return
+
+    window.setTimeout(() => {
+      const currentSlug = this.getSessionId()
+      if (!currentSlug || !deletedSlugs.has(currentSlug)) return
+
+      window.location.assign(buildPerplexityUrl("/"))
+    }, 150)
+  }
+
   private syncConversationListAfterRename(id: string, title: string): void {
     this.threadListCache = this.threadListCache.map((item) =>
       item.id === id ? { ...item, title } : item,
     )
     this.threadListCacheExpiresAt = Math.min(this.threadListCacheExpiresAt, Date.now() + 10_000)
+
+    const link = this.findSidebarConversationLink(id)
+    if (link) {
+      this.applyConversationTitleToDom(link, id, title)
+    }
   }
 
   private parseThreadSlugFromUrl(url: string): string {
@@ -1406,6 +1708,52 @@ export class PerplexityAdapter extends SiteAdapter {
     }
 
     return null
+  }
+
+  private getSidebarConversationTitle(id: string): string | null {
+    const sidebarLink = this.findSidebarConversationLink(id)
+    if (!sidebarLink) return null
+
+    const sidebarTitle = this.extractConversationTitle(sidebarLink, id)
+    return sidebarTitle || null
+  }
+
+  private async findSidebarConversationLinkWithScroll(
+    id: string,
+    timeoutMs: number,
+  ): Promise<HTMLAnchorElement | null> {
+    const immediate = this.findSidebarConversationLink(id)
+    if (immediate) return immediate
+
+    const scrollRoot = this.getSidebarScrollContainer()
+    if (!(scrollRoot instanceof HTMLElement)) {
+      return this.waitForValue(() => this.findSidebarConversationLink(id), timeoutMs)
+    }
+
+    const startedAt = Date.now()
+    const originalTop = scrollRoot.scrollTop
+    let nextRatio = 0
+
+    while (Date.now() - startedAt < timeoutMs) {
+      const found = this.findSidebarConversationLink(id)
+      if (found) {
+        this.ensureElementVisible(found)
+        return found
+      }
+
+      const maxTop = Math.max(0, scrollRoot.scrollHeight - scrollRoot.clientHeight)
+      const nextTop = Math.round(maxTop * nextRatio)
+      scrollRoot.scrollTop = nextTop
+      scrollRoot.dispatchEvent(new Event("scroll", { bubbles: true }))
+      nextRatio += 0.2
+      if (nextRatio > 1) nextRatio = 0
+
+      await this.sleep(100)
+    }
+
+    scrollRoot.scrollTop = originalTop
+    scrollRoot.dispatchEvent(new Event("scroll", { bubbles: true }))
+    return this.findSidebarConversationLink(id)
   }
 
   private findPerplexityModelSelectorButton(): HTMLElement | null {
@@ -1584,7 +1932,7 @@ export class PerplexityAdapter extends SiteAdapter {
       if (!Array.isArray(data) || data.length === 0) break
 
       for (const entry of data) {
-        const slug = typeof entry?.slug === "string" ? entry.slug.trim() : ""
+        const slug = this.extractThreadListSlug(entry)
         if (!slug || slug === "new" || seen.has(slug)) continue
 
         seen.add(slug)
@@ -1607,6 +1955,21 @@ export class PerplexityAdapter extends SiteAdapter {
     }
 
     return results
+  }
+
+  private extractThreadListSlug(entry: PerplexityThreadListEntry): string {
+    const directCandidates = [entry?.slug, entry?.thread_url_slug]
+    for (const candidate of directCandidates) {
+      if (typeof candidate !== "string") continue
+      const slug = candidate.trim()
+      if (slug) return slug
+    }
+
+    if (typeof entry?.link === "string") {
+      return this.parseThreadSlugFromUrl(entry.link)
+    }
+
+    return ""
   }
 
   private getNativeSidebarConversationLinks(): HTMLAnchorElement[] {
@@ -1970,13 +2333,23 @@ export class PerplexityAdapter extends SiteAdapter {
   }
 
   private revealConversationActions(container: HTMLElement): void {
+    this.ensureElementVisible(container)
     const events = [
       new PointerEvent("pointerenter", { bubbles: true, composed: true }),
       new MouseEvent("mouseenter", { bubbles: true, composed: true }),
       new MouseEvent("mouseover", { bubbles: true, composed: true }),
+      new PointerEvent("pointermove", { bubbles: true, composed: true }),
+      new MouseEvent("mousemove", { bubbles: true, composed: true }),
     ]
 
     events.forEach((event) => container.dispatchEvent(event))
+  }
+
+  private getConversationHeaderContainer(): HTMLElement | null {
+    return (
+      (document.querySelector(".h-headerHeight.fixed.z-10") as HTMLElement | null) ||
+      (document.querySelector("header") as HTMLElement | null)
+    )
   }
 
   private findThreadActionButton(
@@ -2365,6 +2738,24 @@ export class PerplexityAdapter extends SiteAdapter {
     }
 
     return score
+  }
+
+  private ensureElementVisible(element: Element | null): void {
+    if (!(element instanceof HTMLElement)) return
+
+    try {
+      element.scrollIntoView({
+        block: "center",
+        inline: "nearest",
+        behavior: "auto",
+      })
+    } catch {
+      try {
+        element.scrollIntoView({ block: "center", inline: "nearest" })
+      } catch {
+        // ignore
+      }
+    }
   }
 
   private scoreThreadActionButtonCandidate(
@@ -2899,23 +3290,14 @@ export class PerplexityAdapter extends SiteAdapter {
       anchor.closest(".group") ||
       anchor.parentElement
 
-    const directCandidates = [
-      anchor.getAttribute("title"),
-      anchor.getAttribute("aria-label"),
-      row instanceof HTMLElement ? row.getAttribute("title") : null,
-      row instanceof HTMLElement ? row.getAttribute("aria-label") : null,
-      anchor.textContent,
-      row?.textContent || null,
-    ]
-
-    directCandidates.forEach((value, index) => {
+    const addCandidate = (value: string | null | undefined, bonus: number) => {
       const normalized = this.normalizeConversationTitle(value || "", slug)
       if (!normalized) return
       candidates.push({
         text: normalized,
-        score: this.scoreConversationTitleCandidate(normalized, slug) + (6 - index),
+        score: this.scoreConversationTitleCandidate(normalized, slug) + bonus,
       })
-    })
+    }
 
     const scopedElements = [anchor, row].filter(Boolean) as Element[]
     const scopedSelectors = ["[data-testid*='title']", "[dir='auto']", ".truncate", "span", "div"]
@@ -2923,22 +3305,91 @@ export class PerplexityAdapter extends SiteAdapter {
     for (const scope of scopedElements) {
       for (const selector of scopedSelectors) {
         scope.querySelectorAll(selector).forEach((candidate) => {
-          const normalized = this.normalizeConversationTitle(candidate.textContent || "", slug)
-          if (!normalized) return
-          candidates.push({
-            text: normalized,
-            score: this.scoreConversationTitleCandidate(normalized, slug),
-          })
+          const visibleBonus =
+            candidate instanceof HTMLElement && this.isVisibleElement(candidate) ? 130 : 70
+          addCandidate(candidate.textContent || "", visibleBonus)
         })
       }
     }
+
+    addCandidate(anchor.textContent, 110)
+    addCandidate(row?.textContent || null, 40)
+
+    // Native Perplexity rename can update visible text before title/aria attributes.
+    // Keep attributes as fallback signals, but do not let stale attributes beat visible text.
+    addCandidate(anchor.getAttribute("title"), 25)
+    addCandidate(anchor.getAttribute("aria-label"), 25)
+    addCandidate(row instanceof HTMLElement ? row.getAttribute("title") : null, 10)
+    addCandidate(row instanceof HTMLElement ? row.getAttribute("aria-label") : null, 10)
 
     candidates.sort((left, right) => right.score - left.score)
     return candidates[0]?.text || slug
   }
 
+  private hasConversationTitleSignal(id: string, title: string): boolean {
+    const normalizedTarget = this.normalizeConversationTitle(title, id)
+    if (!normalizedTarget) return false
+
+    const sidebarLink = this.findSidebarConversationLink(id)
+    if (sidebarLink) {
+      const sidebarTitle = this.extractConversationTitle(sidebarLink, id)
+      if (this.normalizeConversationTitle(sidebarTitle, id) === normalizedTarget) {
+        return true
+      }
+    }
+
+    if (this.getSessionId() === id) {
+      const currentTitle = this.getConversationTitle() || ""
+      if (this.normalizeConversationTitle(currentTitle, id) === normalizedTarget) {
+        return true
+      }
+    }
+
+    const cachedItem = this.getCachedThreadList().find((item) => item.id === id)
+    if (cachedItem && this.normalizeConversationTitle(cachedItem.title, id) === normalizedTarget) {
+      return true
+    }
+
+    return false
+  }
+
+  private applyConversationTitleToDom(
+    anchor: HTMLAnchorElement,
+    slug: string,
+    title: string,
+  ): void {
+    const currentTitle = this.extractConversationTitle(anchor, slug)
+
+    anchor.setAttribute("title", title)
+    anchor.setAttribute("aria-label", title)
+
+    const row = this.findConversationItemContainer(anchor)
+    row?.setAttribute("title", title)
+    row?.setAttribute("aria-label", title)
+
+    const scopes = [anchor, row].filter(Boolean) as Element[]
+    for (const scope of scopes) {
+      const candidates = scope.querySelectorAll(
+        "[data-testid*='title'], [dir='auto'], .truncate, span",
+      )
+      for (const candidate of Array.from(candidates)) {
+        if (!(candidate instanceof HTMLElement)) continue
+        const candidateTitle = this.normalizeConversationTitle(candidate.textContent || "", slug)
+        if (!candidateTitle || candidateTitle !== currentTitle) continue
+        candidate.textContent = title
+        return
+      }
+    }
+  }
+
   private normalizeConversationTitle(rawTitle: string, slug: string): string {
-    const normalized = rawTitle.replace(/\s+/g, " ").trim()
+    const normalized = rawTitle
+      .replace(/\s+/g, " ")
+      .replace(
+        /(?:Rename|Delete|More|\u91cd\u547d\u540d|\u5220\u9664|\u66f4\u591a|\u83dc\u5355)+$/giu,
+        "",
+      )
+      .trim()
     if (!normalized) return ""
     if (normalized === "/" || normalized === "..." || normalized === "···") return ""
     if (/^\(\d+\)$/.test(normalized)) return ""

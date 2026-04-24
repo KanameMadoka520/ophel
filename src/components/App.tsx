@@ -2167,6 +2167,26 @@ export const App = () => {
   }, [promptManager, conversationManager, outlineManager])
 
   useEffect(() => {
+    if (!conversationManager) return
+
+    const pendingTimers: ReturnType<typeof setTimeout>[] = []
+    const scheduleConversationSync = () => {
+      ;[0, 250, 800, 1600, 3000].forEach((delay) => {
+        const timer = setTimeout(() => {
+          conversationManager.syncCurrentConversationNow()
+        }, delay)
+        pendingTimers.push(timer)
+      })
+    }
+
+    window.addEventListener("gh-url-change", scheduleConversationSync)
+    return () => {
+      window.removeEventListener("gh-url-change", scheduleConversationSync)
+      pendingTimers.forEach((timer) => clearTimeout(timer))
+    }
+  }, [conversationManager])
+
+  useEffect(() => {
     if (!conversationManager || typeof chrome === "undefined") return
 
     const handler = (

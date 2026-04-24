@@ -58,10 +58,13 @@ export class ConversationManager {
   // Observer state
   private observerConfig: ConversationObserverConfig | null = null
   private sidebarObserverStop: (() => void) | null = null
+  private sidebarMutationSyncStop: (() => void) | null = null
   private observerContainer: Node | null = null
   private titleWatcher: any = null // DOMToolkit watcher instance
   private pollInterval: NodeJS.Timeout | null = null
   private currentConversationSyncTimer: NodeJS.Timeout | null = null
+  private remoteSnapshotSyncTimer: NodeJS.Timeout | null = null
+  private remoteSnapshotSyncInFlight: Promise<void> | null = null
   private geminiMigrationTimer: NodeJS.Timeout | null = null
   private geminiMigrationRetryCount = 0
 
@@ -140,6 +143,7 @@ export class ConversationManager {
 
     this.startSidebarObserver()
     this.startCurrentConversationSync()
+    this.scheduleRemoteConversationSnapshotSync(300)
   }
 
   // Gemini 老数据迁移：数字 cid(0/1/2...) -> 当前邮箱 cid
@@ -321,6 +325,7 @@ export class ConversationManager {
     this.stopGeminiMigrationRetry()
     this.stopSidebarObserver()
     this.stopCurrentConversationSync()
+    this.stopRemoteConversationSnapshotSync()
   }
 
   updateSettings(settings: { syncUnpin: boolean; syncDelete?: boolean }) {
@@ -371,6 +376,8 @@ export class ConversationManager {
         },
         { parent: sidebarContainer, shadow: config.shadow },
       )
+
+      this.startSidebarMutationSync(sidebarContainer)
     }
 
     startObserverRetry()
@@ -386,6 +393,10 @@ export class ConversationManager {
       this.sidebarObserverStop = null
     }
     this.observerContainer = null
+    if (this.sidebarMutationSyncStop) {
+      this.sidebarMutationSyncStop()
+      this.sidebarMutationSyncStop = null
+    }
 
     if (this.titleWatcher) {
       // DOMToolkit Watcher doesnt explicitly expose stop on the object returned by watchMultiple?
@@ -409,7 +420,8 @@ export class ConversationManager {
 
       if (info?.id) {
         this.updateConversationFromObservation(info, isNew)
-        this.monitorConversationTitle(el as HTMLElement, info.id)
+        const titleElement = config.getTitleElement(el) || el
+        this.monitorConversationTitle(titleElement as HTMLElement, info.id, el)
       } else if (retries > 0) {
         setTimeout(() => tryAdd(retries - 1), 500)
       }
@@ -495,7 +507,8 @@ export class ConversationManager {
           if (!existing) {
             // 新会话
             this.updateConversationFromObservation(info, true)
-            this.monitorConversationTitle(el as HTMLElement, info.id)
+            const titleElement = config.getTitleElement(el) || el
+            this.monitorConversationTitle(titleElement as HTMLElement, info.id, el)
           } else {
             // 检测标题变更
             if (this.shouldUpdateConversationTitle(existing.title, info.title, existing.siteId)) {
@@ -515,66 +528,167 @@ export class ConversationManager {
     }
   }
 
+  syncCurrentConversationNow(): boolean {
+    const currentChanged = this.syncCurrentConversation()
+    const { newCount, updatedCount } = this.syncConversations(null, true)
+    const listChanged = newCount > 0 || updatedCount > 0
+
+    if (listChanged) {
+      this.notifyDataChange()
+    }
+
+    this.scheduleRemoteConversationSnapshotSync(500)
+
+    return currentChanged || listChanged
+  }
+
+  private startSidebarMutationSync(container: Node) {
+    if (this.sidebarMutationSyncStop) return
+    if (!container || typeof MutationObserver === "undefined") return
+    if (
+      container === document ||
+      container === document.body ||
+      container === document.documentElement
+    ) {
+      return
+    }
+
+    let syncTimer: ReturnType<typeof setTimeout> | null = null
+    const scheduleSync = () => {
+      if (syncTimer) clearTimeout(syncTimer)
+      syncTimer = setTimeout(() => {
+        syncTimer = null
+        const { newCount, updatedCount } = this.syncConversations(null, true)
+        if (newCount > 0 || updatedCount > 0) {
+          this.notifyDataChange()
+        }
+      }, 500)
+    }
+
+    const observer = new MutationObserver(scheduleSync)
+    observer.observe(container, {
+      attributes: true,
+      childList: true,
+      characterData: true,
+      subtree: true,
+    })
+
+    this.sidebarMutationSyncStop = () => {
+      if (syncTimer) clearTimeout(syncTimer)
+      syncTimer = null
+      observer.disconnect()
+    }
+  }
+
+  private scheduleRemoteConversationSnapshotSync(delayMs: number) {
+    if (this.siteAdapter.getSiteId() !== SITE_IDS.PERPLEXITY) return
+    if (!this.siteAdapter.loadAllConversations) return
+
+    if (this.remoteSnapshotSyncTimer) {
+      clearTimeout(this.remoteSnapshotSyncTimer)
+    }
+
+    this.remoteSnapshotSyncTimer = setTimeout(() => {
+      this.remoteSnapshotSyncTimer = null
+      void this.refreshRemoteConversationSnapshot()
+    }, delayMs)
+  }
+
+  private async refreshRemoteConversationSnapshot(): Promise<void> {
+    if (this.siteAdapter.getSiteId() !== SITE_IDS.PERPLEXITY) return
+    if (!this.siteAdapter.loadAllConversations) return
+    if (this.remoteSnapshotSyncInFlight) return this.remoteSnapshotSyncInFlight
+
+    this.remoteSnapshotSyncInFlight = (async () => {
+      try {
+        await this.siteAdapter.loadAllConversations()
+        const { newCount, updatedCount } = this.syncConversations(null, true)
+        if (newCount > 0 || updatedCount > 0) {
+          this.notifyDataChange()
+        }
+      } catch {
+        // Best-effort only. DOM/sidebar sync still handles visible rows.
+      } finally {
+        this.remoteSnapshotSyncInFlight = null
+      }
+    })()
+
+    return this.remoteSnapshotSyncInFlight
+  }
+
+  private stopRemoteConversationSnapshotSync() {
+    if (this.remoteSnapshotSyncTimer) {
+      clearTimeout(this.remoteSnapshotSyncTimer)
+      this.remoteSnapshotSyncTimer = null
+    }
+    this.remoteSnapshotSyncInFlight = null
+  }
+
   private startCurrentConversationSync() {
     if (this.currentConversationSyncTimer) return
 
-    const syncCurrent = () => {
-      const info = this.siteAdapter.getCurrentConversationInfo()
-      if (!info?.id) return
+    this.syncCurrentConversation()
+    this.currentConversationSyncTimer = setInterval(() => {
+      this.syncCurrentConversation()
+    }, 1500)
+  }
 
-      const existing = this.conversations[info.id]
-      if (!existing && !info.title?.trim()) {
-        return
-      }
-      if (!existing) {
-        getConversationsStore().addConversation({
-          id: info.id,
-          siteId: this.siteAdapter.getSiteId(),
-          cid: info.cid,
-          title: info.title || t("untitledConversation"),
-          url: info.url || window.location.href,
-          folderId: this.lastUsedFolderId || "inbox",
-          pinned: info.isPinned || false,
-          createdAt: Date.now(),
-          updatedAt: Date.now(),
-        })
-        this.notifyDataChange()
-        return
-      }
+  private syncCurrentConversation(): boolean {
+    const info = this.siteAdapter.getCurrentConversationInfo()
+    if (!info?.id) return false
 
-      const updates: Partial<Conversation> = {}
-      let needsUpdate = false
+    const existing = this.conversations[info.id]
+    if (!existing && !info.title?.trim()) {
+      return false
+    }
+    if (!existing) {
+      getConversationsStore().addConversation({
+        id: info.id,
+        siteId: this.siteAdapter.getSiteId(),
+        cid: info.cid,
+        title: info.title || t("untitledConversation"),
+        url: info.url || window.location.href,
+        folderId: this.lastUsedFolderId || "inbox",
+        pinned: info.isPinned || false,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      })
+      this.notifyDataChange()
+      return true
+    }
 
-      if (this.shouldUpdateConversationTitle(existing.title, info.title, existing.siteId)) {
-        updates.title = info.title
+    const updates: Partial<Conversation> = {}
+    let needsUpdate = false
+
+    if (this.shouldUpdateConversationTitle(existing.title, info.title, existing.siteId)) {
+      updates.title = info.title
+      needsUpdate = true
+    }
+    if (info.url && info.url !== existing.url) {
+      updates.url = info.url
+      needsUpdate = true
+    }
+    if (info.cid !== undefined && info.cid !== existing.cid) {
+      updates.cid = info.cid
+      needsUpdate = true
+    }
+    if (info.isPinned !== undefined && info.isPinned !== existing.pinned) {
+      if (info.isPinned) {
+        updates.pinned = true
         needsUpdate = true
-      }
-      if (info.url && info.url !== existing.url) {
-        updates.url = info.url
+      } else if (this.syncUnpin) {
+        updates.pinned = false
         needsUpdate = true
-      }
-      if (info.cid !== undefined && info.cid !== existing.cid) {
-        updates.cid = info.cid
-        needsUpdate = true
-      }
-      if (info.isPinned !== undefined && info.isPinned !== existing.pinned) {
-        if (info.isPinned) {
-          updates.pinned = true
-          needsUpdate = true
-        } else if (this.syncUnpin) {
-          updates.pinned = false
-          needsUpdate = true
-        }
-      }
-
-      if (needsUpdate) {
-        getConversationsStore().updateConversation(info.id, updates)
-        this.notifyDataChange()
       }
     }
 
-    syncCurrent()
-    this.currentConversationSyncTimer = setInterval(syncCurrent, 1500)
+    if (needsUpdate) {
+      getConversationsStore().updateConversation(info.id, updates)
+      this.notifyDataChange()
+      return true
+    }
+
+    return false
   }
 
   private stopCurrentConversationSync() {
@@ -583,7 +697,7 @@ export class ConversationManager {
     this.currentConversationSyncTimer = null
   }
 
-  private monitorConversationTitle(el: HTMLElement, id: string) {
+  private monitorConversationTitle(el: HTMLElement, id: string, sourceElement?: Element) {
     if (el.dataset.ghTitleObserver) return
     el.dataset.ghTitleObserver = "true"
 
@@ -591,6 +705,7 @@ export class ConversationManager {
       const container = this.siteAdapter.getSidebarScrollContainer() || document.body
       this.titleWatcher = DOMToolkit.watchMultiple(container as Node, {
         debounce: 500,
+        attributes: true,
       })
     }
 
@@ -598,7 +713,7 @@ export class ConversationManager {
       const config = this.observerConfig
       if (!config) return
 
-      const currentInfo = config.extractInfo(el)
+      const currentInfo = config.extractInfo(sourceElement || el)
       const currentId = currentInfo?.id
 
       if (!currentId || currentId !== id) return
@@ -754,6 +869,7 @@ export class ConversationManager {
       const remoteMethod = remoteItem?.method || "none"
       const remoteAttempted = remoteEnabled && remoteResultMap.has(id) && remoteMethod !== "none"
       const remoteSuccess = remoteAttempted && (remoteItem?.success || false)
+      const shouldDeleteLocal = exists && (!remoteAttempted || remoteSuccess)
 
       if (remoteAttempted) {
         remoteAttemptedCount++
@@ -764,14 +880,14 @@ export class ConversationManager {
         }
       }
 
-      if (exists) {
+      if (shouldDeleteLocal) {
         getConversationsStore().deleteConversation(id)
         localDeletedCount++
       }
 
       results.push({
         id,
-        localDeleted: exists,
+        localDeleted: shouldDeleteLocal,
         remoteEnabled,
         remoteAttempted,
         remoteSuccess,
@@ -838,6 +954,7 @@ export class ConversationManager {
     if (!normalizedTitle) return
 
     const conv = this.conversations[convId]
+    const previousTitle = conv?.title
     if (conv) {
       getConversationsStore().updateConversation(convId, { title: normalizedTitle })
       this.notifyDataChange()
@@ -850,7 +967,11 @@ export class ConversationManager {
     }
     const result = await this.siteAdapter.renameConversationOnSite(target, normalizedTitle)
     if (!result.success && result.method !== "none") {
-      showToast(`已在面板重命名，但云端重命名失败${result.reason ? `: ${result.reason}` : ""}`)
+      if (conv) {
+        getConversationsStore().updateConversation(convId, { title: previousTitle || "" })
+        this.notifyDataChange()
+      }
+      showToast(`云端重命名失败，已恢复面板标题${result.reason ? `: ${result.reason}` : ""}`)
     }
   }
 
