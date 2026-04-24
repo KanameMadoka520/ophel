@@ -807,21 +807,29 @@ export class PerplexityAdapter extends SiteAdapter {
       styles: [
         { selector: ":root", property: "--sidebar-pinned-width", value: "0px" },
         {
-          selector: "main",
-          property: "padding-left",
+          selector: "html, body, body *",
+          property: "--sidebar-pinned-width",
           value: "0px",
-          extraCss: "padding-right: 0 !important; width: 100% !important;",
+        },
+        {
+          selector: "main",
+          property: "margin-left",
+          value: "0px",
+          extraCss:
+            "left: 0 !important; right: 0 !important; transform: none !important; padding-left: 0 !important; padding-right: 0 !important; width: 100vw !important; max-width: 100vw !important;",
         },
         {
           selector: "[role='tabpanel']",
           property: "max-width",
           value: "none",
-          extraCss: "width: 100% !important;",
+          extraCss:
+            "width: 100vw !important; margin-left: auto !important; margin-right: auto !important;",
         },
         {
           selector: "main .mx-auto",
           property: "max-width",
           value: "min(1120px, calc(100vw - 48px))",
+          extraCss: "margin-left: auto !important; margin-right: auto !important;",
         },
       ],
     }
