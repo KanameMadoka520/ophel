@@ -592,8 +592,9 @@ export class PerplexityAdapter extends SiteAdapter {
         if (apiThreads.length > 0) {
           this.cacheThreadList(apiThreads)
         }
-      } catch (error) {
-        console.warn("[PerplexityAdapter] Failed to preload thread list:", error)
+      } catch {
+        // Thread-list preloading is best-effort. Perplexity can return 403 on login
+        // pages, and navigation can abort fetches; visible-sidebar sync remains active.
       } finally {
         this.loadAllConversationsPromise = null
       }
