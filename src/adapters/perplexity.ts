@@ -825,7 +825,7 @@ export class PerplexityAdapter extends SiteAdapter {
           property: "--sidebar-pinned-width",
           value: "0px",
           extraCss:
-            "--ophel-perplexity-zen-content-width: min(1120px, calc(100dvw - 48px)) !important; overflow-x: hidden !important;",
+            "--ophel-perplexity-zen-edge-gap: clamp(16px, 3dvw, 32px) !important; --ophel-perplexity-zen-content-width: min(1120px, calc(100dvw - (var(--ophel-perplexity-zen-edge-gap) * 2))) !important; overflow-x: hidden !important;",
         },
         {
           selector: "body.ophel-perplexity-zen-mode :is(#root, #__next, [data-nextjs-root])",
@@ -836,6 +836,14 @@ export class PerplexityAdapter extends SiteAdapter {
         },
         {
           selector: "body.ophel-perplexity-zen-mode main",
+          property: "margin-left",
+          value: "0px",
+          extraCss:
+            "margin-right: 0 !important; left: 0 !important; right: 0 !important; transform: none !important; padding-left: 0 !important; padding-right: 0 !important; width: 100dvw !important; max-width: 100dvw !important; min-width: 0 !important; box-sizing: border-box !important;",
+        },
+        {
+          selector:
+            "body.ophel-perplexity-zen-mode :is(main, [role='tabpanel'], .fixed, .sticky, [class*='fixed'], [class*='sticky']):has(#ask-input), body.ophel-perplexity-zen-mode :is(main, [role='tabpanel'], .fixed, .sticky, [class*='fixed'], [class*='sticky']):has([contenteditable='true'][role='textbox'])",
           property: "margin-left",
           value: "0px",
           extraCss:
@@ -854,6 +862,21 @@ export class PerplexityAdapter extends SiteAdapter {
           value: "var(--ophel-perplexity-zen-content-width)",
           extraCss:
             "width: min(100%, var(--ophel-perplexity-zen-content-width)) !important; margin-left: auto !important; margin-right: auto !important; box-sizing: border-box !important;",
+        },
+        {
+          selector:
+            "body.ophel-perplexity-zen-mode form:has(#ask-input), body.ophel-perplexity-zen-mode form:has([contenteditable='true'][role='textbox'])",
+          property: "max-width",
+          value: "var(--ophel-perplexity-zen-content-width)",
+          extraCss:
+            "width: min(100%, var(--ophel-perplexity-zen-content-width)) !important; margin-left: auto !important; margin-right: auto !important; box-sizing: border-box !important;",
+        },
+        {
+          selector:
+            "body.ophel-perplexity-zen-mode :is(#ask-input, [contenteditable='true'][role='textbox'])",
+          property: "max-width",
+          value: "100%",
+          extraCss: "box-sizing: border-box !important;",
         },
       ],
     }
