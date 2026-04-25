@@ -201,10 +201,18 @@ export class ThemeManager {
           document.documentElement.classList.toggle("light", targetMode === "light")
           document.documentElement.style.colorScheme = targetMode
           if (document.body) {
+            document.body.setAttribute("data-color-scheme", targetMode)
             document.body.classList.toggle("dark", targetMode === "dark")
             document.body.classList.toggle("light", targetMode === "light")
             document.body.style.colorScheme = targetMode
           }
+          window.dispatchEvent(
+            new StorageEvent("storage", {
+              key: "theme",
+              newValue: "system",
+              storageArea: localStorage,
+            }),
+          )
           window.dispatchEvent(
             new StorageEvent("storage", {
               key: "appearance",

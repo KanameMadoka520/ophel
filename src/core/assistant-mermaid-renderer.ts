@@ -738,7 +738,10 @@ export class AssistantMermaidRenderer {
       }
 
       console.warn("[AssistantMermaidRenderer] Mermaid render skipped:", error)
-      if (this.adapter.getSiteId() === "perplexity") {
+      if (
+        this.adapter.getSiteId() === "perplexity" &&
+        this.isPerplexityMermaidDebugToastEnabled()
+      ) {
         const message =
           error instanceof Error ? error.message : typeof error === "string" ? error : "unknown"
         showToastThrottled(
@@ -756,6 +759,14 @@ export class AssistantMermaidRenderer {
         this.processedBlocks.set(block, processedKey)
         this.applyRenderFallback(block, panel, renderSource)
       }
+    }
+  }
+
+  private isPerplexityMermaidDebugToastEnabled(): boolean {
+    try {
+      return localStorage.getItem("ophel:perplexity-mermaid-debug") === "1"
+    } catch {
+      return false
     }
   }
 

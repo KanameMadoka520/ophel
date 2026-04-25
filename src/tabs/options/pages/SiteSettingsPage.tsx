@@ -616,7 +616,7 @@ const SiteSettingsPage: React.FC<SiteSettingsPageProps> = ({ siteId, initialTab 
             siteKey="perplexity"
             settings={settings}
             setSettings={setSettings}
-            placeholder={t("modelKeywordPlaceholder") || "Model keyword"}
+            placeholder={t("modelKeywordPlaceholder")}
             onDisabledClick={() => showPrerequisiteToast(modelLockLabel)}
             settingId="model-lock-perplexity"
           />

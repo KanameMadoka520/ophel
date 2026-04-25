@@ -1235,58 +1235,7 @@ export class UsageCounterManager {
       }
     }
 
-    {
-      const nodes = this.queryAllSelectors(selectors)
-      if (nodes.length === 0) {
-        return {
-          conversationText: "",
-          conversationChars: 0,
-          conversationTokens: 0,
-          outputChars: 0,
-          outputTokens: 0,
-        }
-      }
-
-      const userSelector = this.adapter.getUserQuerySelector()
-      const uniqueNodes = this.sortElementsInDomOrder(Array.from(new Set(nodes)))
-      const conversationChunks: string[] = []
-      const outputChunks: string[] = []
-
-      uniqueNodes.forEach((node) => {
-        const isUser = userSelector ? this.matchesSelector(node, userSelector) : false
-        const text = isUser
-          ? this.adapter.extractUserQueryMarkdown(node)
-          : this.adapter.extractAssistantResponseText(node)
-        const normalized = normalizeText(text || node.textContent || "")
-        if (!normalized) return
-
-        conversationChunks.push(normalized)
-        if (!isUser) {
-          outputChunks.push(normalized)
-        }
-      })
-
-      const conversationText = conversationChunks.join("\n")
-      const outputText = outputChunks.join("\n")
-
-      return {
-        conversationText,
-        conversationChars: conversationText.length,
-        conversationTokens: this.estimateTokens(conversationText),
-        outputChars: outputText.length,
-        outputTokens: this.estimateTokens(outputText),
-      }
-    }
-
-    let nodes: Element[] = []
-    try {
-      // DOMToolkit.query 在 all=true 且传入 selector 数组时，会返回“首个命中的 selector 结果”，
-      // 而不是多个 selector 的并集。这里显式合并为一个复合 selector，确保用户消息和 AI 输出都能被统计。
-      const combinedSelector = selectors.join(", ")
-      nodes = (DOMToolkit.query(combinedSelector, { all: true, shadow: true }) as Element[]) || []
-    } catch {
-      nodes = []
-    }
+    const nodes = this.queryAllSelectors(selectors)
 
     if (nodes.length === 0) {
       return {
@@ -1299,12 +1248,10 @@ export class UsageCounterManager {
     }
 
     const userSelector = this.adapter.getUserQuerySelector()
-    const uniqueNodes = Array.from(new Set(nodes))
+    const uniqueNodes = this.sortElementsInDomOrder(Array.from(new Set(nodes)))
     const conversationChunks: string[] = []
     const outputChunks: string[] = []
 
-    // 这里只统计当前页面 DOM 中“已经加载出来”的会话内容。
-    // 如果站点做了懒加载或折叠隐藏，未出现在 DOM 中的历史内容不会被计入。
     uniqueNodes.forEach((node) => {
       const isUser = userSelector ? this.matchesSelector(node, userSelector) : false
       const text = isUser

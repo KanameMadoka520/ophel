@@ -2353,20 +2353,28 @@ export const App = () => {
   useEffect(() => {
     if (!conversationManager) return
 
-    const pendingTimers: ReturnType<typeof setTimeout>[] = []
+    const pendingTimers = new Set<ReturnType<typeof setTimeout>>()
+    const clearPendingTimers = () => {
+      pendingTimers.forEach((timer) => clearTimeout(timer))
+      pendingTimers.clear()
+    }
+
     const scheduleConversationSync = () => {
+      clearPendingTimers()
       ;[0, 250, 800, 1600, 3000].forEach((delay) => {
-        const timer = setTimeout(() => {
+        let timer: ReturnType<typeof setTimeout>
+        timer = setTimeout(() => {
+          pendingTimers.delete(timer)
           conversationManager.syncCurrentConversationNow()
         }, delay)
-        pendingTimers.push(timer)
+        pendingTimers.add(timer)
       })
     }
 
     window.addEventListener("gh-url-change", scheduleConversationSync)
     return () => {
       window.removeEventListener("gh-url-change", scheduleConversationSync)
-      pendingTimers.forEach((timer) => clearTimeout(timer))
+      clearPendingTimers()
     }
   }, [conversationManager])
 
