@@ -220,7 +220,7 @@ export class PerplexityAdapter extends SiteAdapter {
   private zenCalibrationRaf: number | null = null
   private zenCalibrationObserver: MutationObserver | null = null
   private zenCalibrationResizeObserver: ResizeObserver | null = null
-  private zenComposerCorrectionTarget: HTMLElement | null = null
+  private zenCorrectionTargets: HTMLElement[] = []
   private zenCorrectionPx = 0
 
   match(): boolean {
@@ -887,7 +887,8 @@ export class PerplexityAdapter extends SiteAdapter {
             "width: min(100%, var(--ophel-perplexity-zen-content-width)) !important; margin-left: auto !important; margin-right: auto !important; box-sizing: border-box !important;",
         },
         {
-          selector: "body.ophel-perplexity-zen-mode .ophel-perplexity-zen-composer-center-target",
+          selector:
+            "body.ophel-perplexity-zen-mode .ophel-perplexity-zen-center-target, body.ophel-perplexity-zen-mode .ophel-perplexity-zen-composer-center-target",
           property: "translate",
           value: "var(--ophel-perplexity-zen-correction, 0px) 0",
           extraCss: "will-change: translate !important;",
@@ -971,7 +972,7 @@ export class PerplexityAdapter extends SiteAdapter {
       this.applyZenCorrectionVariable(0, { remove: true })
     }
 
-    this.clearZenComposerCorrectionTarget()
+    this.clearZenCorrectionTargets()
   }
 
   private handleZenCalibrationResize = () => {
@@ -1002,11 +1003,11 @@ export class PerplexityAdapter extends SiteAdapter {
 
     const target = this.getZenComposerMeasurementTarget()
     if (!target) {
-      this.clearZenComposerCorrectionTarget()
+      this.clearZenCorrectionTargets()
       return
     }
 
-    this.markZenComposerCorrectionTarget(target)
+    this.markZenCorrectionTargets(this.getZenCorrectionTargets(target))
 
     const rect = target.getBoundingClientRect()
     if (rect.width <= 0 || rect.height <= 0) return
@@ -1028,6 +1029,16 @@ export class PerplexityAdapter extends SiteAdapter {
 
   private getZenComposerMeasurementTarget(): HTMLElement | null {
     const editor = this.getTextareaElement()
+    const pageColumn = editor ? this.findZenHomeContentColumn(editor) : null
+    if (pageColumn) {
+      return pageColumn
+    }
+
+    const shell = editor ? this.findZenComposerShell(editor) : null
+    if (shell) {
+      return shell
+    }
+
     const form = editor?.closest("form")
     if (form instanceof HTMLElement && this.isVisibleElement(form)) {
       return form
@@ -1043,22 +1054,272 @@ export class PerplexityAdapter extends SiteAdapter {
     return editor instanceof HTMLElement && this.isVisibleElement(editor) ? editor : null
   }
 
+  private findZenHomeContentColumn(editor: HTMLElement): HTMLElement | null {
+    const viewportWidth = Math.max(window.innerWidth, 1)
+    const viewportHeight = Math.max(window.innerHeight, 1)
+    const candidates: Array<{ element: HTMLElement; score: number }> = []
+
+    let current: HTMLElement | null = editor
+    while (current && current !== document.body && current !== document.documentElement) {
+      if (this.isVisibleElement(current)) {
+        const rect = current.getBoundingClientRect()
+        const containsEditor = current === editor || current.contains(editor)
+        const widthOk = rect.width >= 640 && rect.width <= viewportWidth - 24
+        const heightOk = rect.height >= 120 && rect.height <= Math.max(viewportHeight, 360)
+
+        if (containsEditor && widthOk && heightOk) {
+          const signal = this.getZenHomeContentSignal(current)
+          let score = 0
+          if (signal.hasTopCategories) score += 120
+          if (signal.hasPerplexityPro) score += 90
+          if (signal.hasComputerCard) score += 70
+          if (signal.hasModelControl) score += 25
+          if (rect.width >= 900) score += 30
+          if (rect.height >= 420) score += 30
+          score += Math.min(this.getElementDepthFrom(editor, current), 24) * 3
+
+          if (score >= 120) {
+            candidates.push({ element: current, score })
+          }
+        }
+      }
+
+      current = current.parentElement
+    }
+
+    candidates.sort((a, b) => b.score - a.score)
+    return candidates[0]?.element || null
+  }
+
+  private getZenHomeContentSignal(element: HTMLElement): {
+    hasTopCategories: boolean
+    hasPerplexityPro: boolean
+    hasComputerCard: boolean
+    hasModelControl: boolean
+  } {
+    const text = this.normalizeUiText(element.textContent || "")
+    return {
+      hasTopCategories:
+        /发现/.test(text) && /金融/.test(text) && /健康/.test(text) && /学术/.test(text),
+      hasPerplexityPro: /perplexity\s*pro/i.test(text),
+      hasComputerCard: /让电脑开始工作|尝试电脑|computer/i.test(text),
+      hasModelControl: /(gpt|gemini|claude|sonar|模型)/i.test(text),
+    }
+  }
+
+  private findZenComposerShell(editor: HTMLElement): HTMLElement | null {
+    const viewportWidth = Math.max(window.innerWidth, 1)
+    const viewportHeight = Math.max(window.innerHeight, 1)
+    const candidates: Array<{ element: HTMLElement; score: number }> = []
+
+    let current: HTMLElement | null = editor
+    while (current && current !== document.body && current !== document.documentElement) {
+      if (this.isVisibleElement(current)) {
+        const rect = current.getBoundingClientRect()
+        const widthOk = rect.width >= 420 && rect.width <= viewportWidth - 24
+        const heightOk = rect.height >= 44 && rect.height <= Math.max(260, viewportHeight * 0.45)
+        const containsEditor = current === editor || current.contains(editor)
+
+        if (containsEditor && widthOk && heightOk) {
+          const signal = this.getZenComposerShellSignal(current)
+          const style = window.getComputedStyle(current)
+          const borderRadius = Number.parseFloat(style.borderTopLeftRadius || "0")
+          const hasBorder =
+            style.borderTopStyle !== "none" ||
+            style.borderRightStyle !== "none" ||
+            style.borderBottomStyle !== "none" ||
+            style.borderLeftStyle !== "none"
+          const hasSurface =
+            hasBorder ||
+            style.boxShadow !== "none" ||
+            borderRadius >= 8 ||
+            /rgb|hsl|color|var\(/i.test(style.backgroundColor)
+
+          let score = 0
+          if (current instanceof HTMLFormElement) score += 40
+          if (signal.hasSubmitControl) score += 80
+          if (signal.hasModelControl) score += 70
+          if (signal.hasAttachmentControl) score += 30
+          if (hasSurface) score += 35
+          if (borderRadius >= 12) score += 20
+          score += Math.min(rect.width, 1120) / 40
+          score -= Math.abs(rect.height - 96) / 4
+          score -= this.getElementDepthFrom(editor, current) * 2
+
+          if (score >= 70) {
+            candidates.push({ element: current, score })
+          }
+        }
+      }
+
+      current = current.parentElement
+    }
+
+    candidates.sort((a, b) => b.score - a.score)
+    return candidates[0]?.element || null
+  }
+
+  private getZenComposerShellSignal(element: HTMLElement): {
+    hasModelControl: boolean
+    hasSubmitControl: boolean
+    hasAttachmentControl: boolean
+  } {
+    const buttons = Array.from(
+      element.querySelectorAll<HTMLElement>("button, [role='button'], [aria-haspopup='menu']"),
+    )
+
+    let hasModelControl = false
+    let hasSubmitControl = false
+    let hasAttachmentControl = false
+
+    for (const button of buttons) {
+      const signal = this.normalizeUiText(
+        [
+          button.textContent || "",
+          button.getAttribute("aria-label") || "",
+          button.getAttribute("title") || "",
+          button.getAttribute("data-testid") || "",
+          button.getAttribute("data-test-id") || "",
+          button.className || "",
+        ].join(" "),
+      )
+
+      if (/(model|gpt|gemini|claude|sonar|nemotron|模型)/i.test(signal)) {
+        hasModelControl = true
+      }
+      if (/(submit|send|voice|audio|mic|microphone|arrow|提交|发送|語音|语音)/i.test(signal)) {
+        hasSubmitControl = true
+      }
+      if (
+        /(attach|upload|file|connector|computer|add|附件|文件|上传|連接器|连接器)/i.test(signal)
+      ) {
+        hasAttachmentControl = true
+      }
+    }
+
+    return { hasModelControl, hasSubmitControl, hasAttachmentControl }
+  }
+
+  private getElementDepthFrom(descendant: HTMLElement, ancestor: HTMLElement): number {
+    let depth = 0
+    let current: HTMLElement | null = descendant
+    while (current && current !== ancestor) {
+      depth += 1
+      current = current.parentElement
+    }
+    return depth
+  }
+
+  private getZenCorrectionTargets(measurementTarget: HTMLElement): HTMLElement[] {
+    const targets = [measurementTarget]
+    targets.push(...this.findZenHomeLandmarkCorrectionTargets(measurementTarget))
+    return this.dedupeZenCorrectionTargets(targets)
+  }
+
+  private findZenHomeLandmarkCorrectionTargets(measurementTarget: HTMLElement): HTMLElement[] {
+    const scope = document.querySelector("main") || document.body
+    if (!scope) return []
+
+    const candidates = Array.from(
+      scope.querySelectorAll<HTMLElement>(
+        "h1, h2, header, nav, section, div, [role='heading'], [role='tablist']",
+      ),
+    )
+    const targets: HTMLElement[] = []
+    const landmarkPatterns = [
+      /perplexity\s*pro/i,
+      /发现.*金融.*健康.*学术|发现.*金融.*健康|金融.*健康.*学术.*专利/,
+    ]
+    const viewportWidth = Math.max(window.innerWidth, 1)
+
+    for (const candidate of candidates) {
+      if (!this.isVisibleElement(candidate)) continue
+      if (candidate.closest("#gh-zen-mode-exit-host, .ophel-root, [data-ophel-root]")) continue
+      if (measurementTarget.contains(candidate)) continue
+
+      const text = this.normalizeUiText(candidate.textContent || "")
+      if (!landmarkPatterns.some((pattern) => pattern.test(text))) continue
+
+      const target = this.getZenLandmarkCorrectionTarget(candidate)
+      if (!target || measurementTarget.contains(target)) continue
+
+      const rect = target.getBoundingClientRect()
+      if (rect.width <= 0 || rect.width > viewportWidth - 24 || rect.height > 260) continue
+
+      targets.push(target)
+    }
+
+    return targets
+  }
+
+  private getZenLandmarkCorrectionTarget(element: HTMLElement): HTMLElement | null {
+    const viewportWidth = Math.max(window.innerWidth, 1)
+    let target: HTMLElement = element
+    let current = element.parentElement
+    let climbed = 0
+
+    while (
+      current &&
+      current !== document.body &&
+      current !== document.documentElement &&
+      climbed < 4 &&
+      this.isVisibleElement(current)
+    ) {
+      const rect = current.getBoundingClientRect()
+      if (rect.width > viewportWidth - 24 || rect.height > 260) break
+      target = current
+      current = current.parentElement
+      climbed += 1
+    }
+
+    return target
+  }
+
+  private dedupeZenCorrectionTargets(targets: HTMLElement[]): HTMLElement[] {
+    const unique: HTMLElement[] = []
+    for (const target of targets) {
+      if (!target.isConnected) continue
+      if (unique.some((existing) => existing === target || existing.contains(target))) continue
+
+      for (let index = unique.length - 1; index >= 0; index -= 1) {
+        if (target.contains(unique[index])) {
+          unique.splice(index, 1)
+        }
+      }
+
+      unique.push(target)
+    }
+
+    return unique
+  }
+
   private clampZenCorrection(value: number): number {
     return Math.max(-320, Math.min(320, value))
   }
 
-  private markZenComposerCorrectionTarget(target: HTMLElement): void {
-    if (this.zenComposerCorrectionTarget === target) return
-    this.clearZenComposerCorrectionTarget()
-    this.zenComposerCorrectionTarget = target
-    target.classList.add("ophel-perplexity-zen-composer-center-target")
+  private markZenCorrectionTargets(targets: HTMLElement[]): void {
+    const current = this.zenCorrectionTargets
+    if (
+      current.length === targets.length &&
+      current.every((target, index) => target === targets[index])
+    ) {
+      return
+    }
+
+    this.clearZenCorrectionTargets()
+    this.zenCorrectionTargets = targets
+    for (const target of targets) {
+      target.classList.add("ophel-perplexity-zen-center-target")
+      target.classList.add("ophel-perplexity-zen-composer-center-target")
+    }
   }
 
-  private clearZenComposerCorrectionTarget(): void {
-    this.zenComposerCorrectionTarget?.classList.remove(
-      "ophel-perplexity-zen-composer-center-target",
-    )
-    this.zenComposerCorrectionTarget = null
+  private clearZenCorrectionTargets(): void {
+    for (const target of this.zenCorrectionTargets) {
+      target.classList.remove("ophel-perplexity-zen-center-target")
+      target.classList.remove("ophel-perplexity-zen-composer-center-target")
+    }
+    this.zenCorrectionTargets = []
   }
 
   private applyZenCorrectionVariable(value: number, options: { remove?: boolean } = {}): void {
