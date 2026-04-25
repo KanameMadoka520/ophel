@@ -804,6 +804,10 @@ export class PerplexityAdapter extends SiteAdapter {
 
   getZenModeConfig(): ZenModeConfig | null {
     return {
+      rootClass: {
+        selector: "body",
+        className: "ophel-perplexity-zen-mode",
+      },
       hide: [...ZEN_MODE_HIDE_SELECTORS],
       styles: [
         { selector: ":root", property: "--sidebar-pinned-width", value: "0px" },
@@ -813,24 +817,39 @@ export class PerplexityAdapter extends SiteAdapter {
           value: "0px",
         },
         {
-          selector: "main",
+          selector: "body.ophel-perplexity-zen-mode",
+          property: "--sidebar-pinned-width",
+          value: "0px",
+          extraCss:
+            "--ophel-perplexity-zen-content-width: min(1120px, calc(100dvw - 48px)) !important; overflow-x: hidden !important;",
+        },
+        {
+          selector: "body.ophel-perplexity-zen-mode :is(#root, #__next, [data-nextjs-root])",
           property: "margin-left",
           value: "0px",
           extraCss:
-            "left: 0 !important; right: 0 !important; transform: none !important; padding-left: 0 !important; padding-right: 0 !important; width: 100vw !important; max-width: 100vw !important;",
+            "left: 0 !important; right: 0 !important; transform: none !important; padding-left: 0 !important; padding-right: 0 !important; width: 100dvw !important; max-width: 100dvw !important;",
         },
         {
-          selector: "[role='tabpanel']",
+          selector: "body.ophel-perplexity-zen-mode main",
+          property: "margin-left",
+          value: "0px",
+          extraCss:
+            "margin-right: 0 !important; left: 0 !important; right: 0 !important; transform: none !important; padding-left: 0 !important; padding-right: 0 !important; width: 100dvw !important; max-width: 100dvw !important; min-width: 0 !important; box-sizing: border-box !important;",
+        },
+        {
+          selector: "body.ophel-perplexity-zen-mode [role='tabpanel']",
           property: "max-width",
           value: "none",
           extraCss:
-            "width: 100vw !important; margin-left: auto !important; margin-right: auto !important;",
+            "width: 100dvw !important; margin-left: 0 !important; margin-right: 0 !important; padding-left: 0 !important; padding-right: 0 !important; box-sizing: border-box !important;",
         },
         {
-          selector: "main .mx-auto",
+          selector: "body.ophel-perplexity-zen-mode main .mx-auto",
           property: "max-width",
-          value: "min(1120px, calc(100vw - 48px))",
-          extraCss: "margin-left: auto !important; margin-right: auto !important;",
+          value: "var(--ophel-perplexity-zen-content-width)",
+          extraCss:
+            "width: min(100%, var(--ophel-perplexity-zen-content-width)) !important; margin-left: auto !important; margin-right: auto !important; box-sizing: border-box !important;",
         },
       ],
     }
@@ -3502,11 +3521,11 @@ export class PerplexityAdapter extends SiteAdapter {
     const rect = element.getBoundingClientRect()
     const clientX = rect.left + Math.max(1, Math.min(rect.width / 2, Math.max(1, rect.width - 1)))
     const clientY = rect.top + Math.max(1, Math.min(rect.height / 2, Math.max(1, rect.height - 1)))
+    const eventWindow = element.ownerDocument.defaultView || window
     const mouseInit: MouseEventInit = {
       bubbles: true,
       cancelable: true,
       composed: true,
-      view: window,
       button: 0,
       buttons: 1,
       clientX,
@@ -3518,17 +3537,55 @@ export class PerplexityAdapter extends SiteAdapter {
       pointerType: "mouse",
       isPrimary: true,
     }
+    const MouseEventCtor =
+      eventWindow.MouseEvent || (typeof MouseEvent !== "undefined" ? MouseEvent : null)
+    const PointerEventCtor =
+      eventWindow.PointerEvent || (typeof PointerEvent !== "undefined" ? PointerEvent : null)
+    const EventCtor = eventWindow.Event || Event
 
-    element.focus?.()
-    element.dispatchEvent(new PointerEvent("pointerenter", pointerInit))
-    element.dispatchEvent(new PointerEvent("pointerover", pointerInit))
-    element.dispatchEvent(new MouseEvent("mouseenter", mouseInit))
-    element.dispatchEvent(new MouseEvent("mouseover", mouseInit))
-    element.dispatchEvent(new PointerEvent("pointerdown", pointerInit))
-    element.dispatchEvent(new MouseEvent("mousedown", mouseInit))
-    element.dispatchEvent(new PointerEvent("pointerup", pointerInit))
-    element.dispatchEvent(new MouseEvent("mouseup", mouseInit))
-    element.dispatchEvent(new MouseEvent("click", mouseInit))
+    const dispatchSyntheticEvent = (type: string, preferPointer = false) => {
+      let event: Event | null = null
+
+      try {
+        if (preferPointer && PointerEventCtor) {
+          event = new PointerEventCtor(type, pointerInit)
+        } else if (MouseEventCtor) {
+          event = new MouseEventCtor(type, mouseInit)
+        }
+      } catch {
+        event = null
+      }
+
+      if (!event && MouseEventCtor) {
+        try {
+          event = new MouseEventCtor(type, mouseInit)
+        } catch {
+          event = null
+        }
+      }
+
+      if (!event) {
+        event = new EventCtor(type, { bubbles: true, cancelable: true, composed: true })
+      }
+
+      element.dispatchEvent(event)
+    }
+
+    try {
+      element.focus?.({ preventScroll: true })
+    } catch {
+      element.focus?.()
+    }
+
+    dispatchSyntheticEvent("pointerenter", true)
+    dispatchSyntheticEvent("pointerover", true)
+    dispatchSyntheticEvent("mouseenter")
+    dispatchSyntheticEvent("mouseover")
+    dispatchSyntheticEvent("pointerdown", true)
+    dispatchSyntheticEvent("mousedown")
+    dispatchSyntheticEvent("pointerup", true)
+    dispatchSyntheticEvent("mouseup")
+    dispatchSyntheticEvent("click")
   }
 
   private getUiSignalText(element: HTMLElement): string {
