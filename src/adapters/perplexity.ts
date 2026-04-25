@@ -850,6 +850,14 @@ export class PerplexityAdapter extends SiteAdapter {
             "margin-right: 0 !important; left: 0 !important; right: 0 !important; transform: none !important; padding-left: 0 !important; padding-right: 0 !important; width: 100dvw !important; max-width: 100dvw !important; min-width: 0 !important; box-sizing: border-box !important;",
         },
         {
+          selector:
+            "body.ophel-perplexity-zen-mode :is(div, section, footer):has(> form:has(#ask-input)), body.ophel-perplexity-zen-mode :is(div, section, footer):has(> form:has([contenteditable='true'][role='textbox']))",
+          property: "margin-left",
+          value: "calc(50% - 50dvw)",
+          extraCss:
+            "margin-right: calc(50% - 50dvw) !important; left: auto !important; right: auto !important; transform: none !important; padding-left: var(--ophel-perplexity-zen-edge-gap) !important; padding-right: var(--ophel-perplexity-zen-edge-gap) !important; width: 100dvw !important; max-width: 100dvw !important; min-width: 0 !important; box-sizing: border-box !important; display: block !important;",
+        },
+        {
           selector: "body.ophel-perplexity-zen-mode [role='tabpanel']",
           property: "max-width",
           value: "none",
