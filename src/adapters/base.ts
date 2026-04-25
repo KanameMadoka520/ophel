@@ -625,6 +625,10 @@ export abstract class SiteAdapter {
     return null
   }
 
+  onZenModeChanged(_enabled: boolean): void {
+    // Optional hook for site-specific layout calibration.
+  }
+
   /** 返回净化模式配置（隐藏免责声明、广告、下载按钮等冗余元素） */
   getCleanModeConfig(): ZenModeConfig | null {
     return null

@@ -215,6 +215,13 @@ export class PerplexityAdapter extends SiteAdapter {
   private threadListCacheExpiresAt = 0
   private loadAllConversationsPromise: Promise<void> | null = null
   private lastManualModelSelectorToggleAt = 0
+  private zenCalibrationTimer: ReturnType<typeof setTimeout> | null = null
+  private zenCalibrationFollowupTimers: Array<ReturnType<typeof setTimeout>> = []
+  private zenCalibrationRaf: number | null = null
+  private zenCalibrationObserver: MutationObserver | null = null
+  private zenCalibrationResizeObserver: ResizeObserver | null = null
+  private zenComposerCorrectionTarget: HTMLElement | null = null
+  private zenCorrectionPx = 0
 
   match(): boolean {
     return HOSTNAMES.has(window.location.hostname)
@@ -825,7 +832,7 @@ export class PerplexityAdapter extends SiteAdapter {
           property: "--sidebar-pinned-width",
           value: "0px",
           extraCss:
-            "--ophel-perplexity-zen-edge-gap: clamp(16px, 3dvw, 32px) !important; --ophel-perplexity-zen-content-width: min(1120px, calc(100dvw - (var(--ophel-perplexity-zen-edge-gap) * 2))) !important; overflow-x: hidden !important;",
+            "--ophel-perplexity-zen-correction: 0px !important; --ophel-perplexity-zen-edge-gap: clamp(16px, 3dvw, 32px) !important; --ophel-perplexity-zen-content-width: min(1120px, calc(100dvw - (var(--ophel-perplexity-zen-edge-gap) * 2))) !important; overflow-x: hidden !important;",
         },
         {
           selector: "body.ophel-perplexity-zen-mode :is(#root, #__next, [data-nextjs-root])",
@@ -880,6 +887,12 @@ export class PerplexityAdapter extends SiteAdapter {
             "width: min(100%, var(--ophel-perplexity-zen-content-width)) !important; margin-left: auto !important; margin-right: auto !important; box-sizing: border-box !important;",
         },
         {
+          selector: "body.ophel-perplexity-zen-mode .ophel-perplexity-zen-composer-center-target",
+          property: "translate",
+          value: "var(--ophel-perplexity-zen-correction, 0px) 0",
+          extraCss: "will-change: translate !important;",
+        },
+        {
           selector:
             "body.ophel-perplexity-zen-mode :is(#ask-input, [contenteditable='true'][role='textbox'])",
           property: "max-width",
@@ -890,10 +903,175 @@ export class PerplexityAdapter extends SiteAdapter {
     }
   }
 
+  onZenModeChanged(enabled: boolean): void {
+    if (enabled) {
+      this.startZenCenterCalibration()
+    } else {
+      this.stopZenCenterCalibration()
+    }
+  }
+
   getCleanModeConfig(): ZenModeConfig | null {
     return {
       hide: [...CLEAN_MODE_HIDE_SELECTORS],
     }
+  }
+
+  private startZenCenterCalibration(): void {
+    this.stopZenCenterCalibration({ keepCorrection: false })
+    this.scheduleZenCenterCalibration(0)
+    this.zenCalibrationFollowupTimers = [80, 240, 600, 1200, 2200].map((delay) =>
+      setTimeout(() => this.scheduleZenCenterCalibration(0), delay),
+    )
+
+    if (typeof MutationObserver !== "undefined" && document.body) {
+      this.zenCalibrationObserver = new MutationObserver(() =>
+        this.scheduleZenCenterCalibration(80),
+      )
+      this.zenCalibrationObserver.observe(document.body, {
+        attributes: true,
+        childList: true,
+        subtree: true,
+      })
+    }
+
+    if (typeof ResizeObserver !== "undefined") {
+      this.zenCalibrationResizeObserver = new ResizeObserver(() =>
+        this.scheduleZenCenterCalibration(40),
+      )
+      this.zenCalibrationResizeObserver.observe(document.documentElement)
+      if (document.body) this.zenCalibrationResizeObserver.observe(document.body)
+    }
+
+    window.addEventListener("resize", this.handleZenCalibrationResize, { passive: true })
+  }
+
+  private stopZenCenterCalibration(options: { keepCorrection?: boolean } = {}): void {
+    if (this.zenCalibrationTimer) {
+      clearTimeout(this.zenCalibrationTimer)
+      this.zenCalibrationTimer = null
+    }
+
+    this.zenCalibrationFollowupTimers.forEach((timer) => clearTimeout(timer))
+    this.zenCalibrationFollowupTimers = []
+
+    if (this.zenCalibrationRaf !== null) {
+      cancelAnimationFrame(this.zenCalibrationRaf)
+      this.zenCalibrationRaf = null
+    }
+
+    this.zenCalibrationObserver?.disconnect()
+    this.zenCalibrationObserver = null
+    this.zenCalibrationResizeObserver?.disconnect()
+    this.zenCalibrationResizeObserver = null
+    window.removeEventListener("resize", this.handleZenCalibrationResize)
+
+    if (!options.keepCorrection) {
+      this.zenCorrectionPx = 0
+      this.applyZenCorrectionVariable(0, { remove: true })
+    }
+
+    this.clearZenComposerCorrectionTarget()
+  }
+
+  private handleZenCalibrationResize = () => {
+    this.scheduleZenCenterCalibration(40)
+  }
+
+  private scheduleZenCenterCalibration(delayMs: number): void {
+    if (!document.body?.classList.contains("ophel-perplexity-zen-mode")) return
+
+    if (this.zenCalibrationTimer) {
+      clearTimeout(this.zenCalibrationTimer)
+    }
+
+    this.zenCalibrationTimer = setTimeout(() => {
+      this.zenCalibrationTimer = null
+      if (this.zenCalibrationRaf !== null) {
+        cancelAnimationFrame(this.zenCalibrationRaf)
+      }
+      this.zenCalibrationRaf = requestAnimationFrame(() => {
+        this.zenCalibrationRaf = null
+        this.calibrateZenCenterFromComposer()
+      })
+    }, delayMs)
+  }
+
+  private calibrateZenCenterFromComposer(): void {
+    if (!document.body?.classList.contains("ophel-perplexity-zen-mode")) return
+
+    const target = this.getZenComposerMeasurementTarget()
+    if (!target) {
+      this.clearZenComposerCorrectionTarget()
+      return
+    }
+
+    this.markZenComposerCorrectionTarget(target)
+
+    const rect = target.getBoundingClientRect()
+    if (rect.width <= 0 || rect.height <= 0) return
+
+    const leftGap = rect.left
+    const rightGap = window.innerWidth - rect.right
+    const diff = leftGap - rightGap
+    if (Math.abs(diff) <= 2) return
+
+    const nextCorrection = this.clampZenCorrection(this.zenCorrectionPx - diff / 2)
+    if (Math.abs(nextCorrection - this.zenCorrectionPx) <= 0.5) return
+
+    this.zenCorrectionPx = nextCorrection
+    this.applyZenCorrectionVariable(nextCorrection)
+
+    // Let layout settle and re-measure once; this handles late composer hydration.
+    this.scheduleZenCenterCalibration(80)
+  }
+
+  private getZenComposerMeasurementTarget(): HTMLElement | null {
+    const editor = this.getTextareaElement()
+    const form = editor?.closest("form")
+    if (form instanceof HTMLElement && this.isVisibleElement(form)) {
+      return form
+    }
+
+    const fallback =
+      document.querySelector("form:has(#ask-input)") ||
+      document.querySelector("form:has([contenteditable='true'][role='textbox'])")
+    if (fallback instanceof HTMLElement && this.isVisibleElement(fallback)) {
+      return fallback
+    }
+
+    return editor instanceof HTMLElement && this.isVisibleElement(editor) ? editor : null
+  }
+
+  private clampZenCorrection(value: number): number {
+    return Math.max(-320, Math.min(320, value))
+  }
+
+  private markZenComposerCorrectionTarget(target: HTMLElement): void {
+    if (this.zenComposerCorrectionTarget === target) return
+    this.clearZenComposerCorrectionTarget()
+    this.zenComposerCorrectionTarget = target
+    target.classList.add("ophel-perplexity-zen-composer-center-target")
+  }
+
+  private clearZenComposerCorrectionTarget(): void {
+    this.zenComposerCorrectionTarget?.classList.remove(
+      "ophel-perplexity-zen-composer-center-target",
+    )
+    this.zenComposerCorrectionTarget = null
+  }
+
+  private applyZenCorrectionVariable(value: number, options: { remove?: boolean } = {}): void {
+    const propertyName = "--ophel-perplexity-zen-correction"
+    if (options.remove) {
+      document.documentElement.style.removeProperty(propertyName)
+      document.body?.style.removeProperty(propertyName)
+      return
+    }
+
+    const propertyValue = `${value.toFixed(2)}px`
+    document.documentElement.style.setProperty(propertyName, propertyValue, "important")
+    document.body?.style.setProperty(propertyName, propertyValue, "important")
   }
 
   getModelSwitcherConfig(keyword: string): ModelSwitcherConfig | null {
