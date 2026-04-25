@@ -16,6 +16,7 @@ import { GeminiEnterpriseAdapter } from "./gemini-enterprise"
 import { GrokAdapter } from "./grok"
 import { ImaAdapter } from "./ima"
 import { KimiAdapter } from "./kimi"
+import { PerplexityAdapter } from "./perplexity"
 import { QianwenAdapter } from "./qianwen"
 import { QwenAiAdapter } from "./qwen-studio"
 import { YuanbaoAdapter } from "./yuanbao"
@@ -34,6 +35,7 @@ const adapters: SiteAdapter[] = [
   new ImaAdapter(),
   new ChatGLMAdapter(),
   new KimiAdapter(),
+  new PerplexityAdapter(),
   new QwenAiAdapter(),
   new QianwenAdapter(),
   new YuanbaoAdapter(),
