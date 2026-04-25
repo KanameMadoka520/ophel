@@ -491,6 +491,10 @@ export class PerplexityAdapter extends SiteAdapter {
     return this.mergeConversationInfos(cachedList, domList, currentList)
   }
 
+  hasAuthoritativeConversationList(): boolean {
+    return Date.now() <= this.threadListCacheExpiresAt
+  }
+
   getConversationObserverConfig(): ConversationObserverConfig | null {
     return {
       selector: SIDEBAR_LINK_SELECTOR,
@@ -498,6 +502,8 @@ export class PerplexityAdapter extends SiteAdapter {
       enablePolling: true,
       pollIntervalMs: 1500,
       extractInfo: (element) => this.extractConversationInfo(element),
+      extractRemovedInfo: (element) =>
+        this.extractConversationInfo(element, { allowDisconnected: true }),
       getTitleElement: (element) => this.findConversationItemContainer(element) || element,
     }
   }
@@ -589,9 +595,7 @@ export class PerplexityAdapter extends SiteAdapter {
     this.loadAllConversationsPromise = (async () => {
       try {
         const apiThreads = await this.fetchThreadsViaApi()
-        if (apiThreads.length > 0) {
-          this.cacheThreadList(apiThreads)
-        }
+        this.cacheThreadList(apiThreads)
       } catch {
         // Thread-list preloading is best-effort. Perplexity can return 403 on login
         // pages, and navigation can abort fetches; visible-sidebar sync remains active.
@@ -1703,10 +1707,18 @@ export class PerplexityAdapter extends SiteAdapter {
     }
   }
 
-  private extractConversationInfo(element: Element): ConversationInfo | null {
-    const anchor = element.closest("a") as HTMLAnchorElement | null
+  private extractConversationInfo(
+    element: Element,
+    options: { allowDisconnected?: boolean } = {},
+  ): ConversationInfo | null {
+    const anchor = (
+      element instanceof HTMLAnchorElement
+        ? element
+        : element.closest("a") || element.querySelector("a[href^='/search/'], a[href^='/page/']")
+    ) as HTMLAnchorElement | null
     if (!anchor) return null
-    if (!this.isNativeSidebarConversationLink(anchor)) return null
+    if (!options.allowDisconnected && !this.isNativeSidebarConversationLink(anchor)) return null
+    if (options.allowDisconnected && this.isElementInsideOphel(anchor)) return null
 
     const slug = this.parseThreadSlugFromUrl(anchor.href || anchor.getAttribute("href") || "")
     if (!slug) return null

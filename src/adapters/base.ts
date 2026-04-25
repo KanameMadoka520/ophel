@@ -92,6 +92,7 @@ export interface ConversationObserverConfig {
   selector: string
   shadow: boolean
   extractInfo: (el: Element) => ConversationInfo | null
+  extractRemovedInfo?: (el: Element) => ConversationInfo | null
   getTitleElement: (el: Element) => Element | null
   enablePolling?: boolean
   pollIntervalMs?: number
@@ -400,6 +401,14 @@ export abstract class SiteAdapter {
   /** 获取侧边栏会话列表 */
   getConversationList(): ConversationInfo[] {
     return []
+  }
+
+  /**
+   * Whether getConversationList currently includes a complete enough remote snapshot
+   * to safely prune local conversations that disappeared from the site.
+   */
+  hasAuthoritativeConversationList(): boolean {
+    return false
   }
 
   /** 获取当前页面会话的基础元数据 */

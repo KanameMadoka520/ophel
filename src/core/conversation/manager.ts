@@ -547,16 +547,63 @@ export class ConversationManager {
     if (this.sidebarMutationSyncStop) return
     if (!container || typeof MutationObserver === "undefined") return
     let syncTimer: ReturnType<typeof setTimeout> | null = null
+    const pendingRemovedConversationIds = new Set<string>()
     const scheduleSync = () => {
       if (syncTimer) return
       syncTimer = setTimeout(() => {
         syncTimer = null
+        const removedIds = Array.from(pendingRemovedConversationIds)
+        pendingRemovedConversationIds.clear()
         const { newCount, updatedCount } = this.syncConversations(null, true)
+        void this.syncDeletedConversationsFromRemovedIds(removedIds).then((deletedCount) => {
+          if (deletedCount > 0) {
+            this.notifyDataChange()
+          }
+        })
         if (newCount > 0 || updatedCount > 0) {
           this.notifyDataChange()
         }
         this.scheduleRemoteConversationSnapshotSync(800)
       }, 800)
+    }
+
+    const collectRemovedConversationIds = (mutations: MutationRecord[]): string[] => {
+      const selector = this.observerConfig?.selector
+      const extractRemovedInfo =
+        this.observerConfig?.extractRemovedInfo || this.observerConfig?.extractInfo
+      if (!selector || !extractRemovedInfo) return []
+
+      const ids = new Set<string>()
+      const inspectElement = (element: Element | null) => {
+        if (!element) return
+
+        const candidates: Element[] = []
+        try {
+          if (element.matches(selector)) {
+            candidates.push(element)
+          }
+          candidates.push(...Array.from(element.querySelectorAll(selector)))
+        } catch {
+          candidates.push(element)
+        }
+
+        candidates.forEach((candidate) => {
+          const info = extractRemovedInfo(candidate)
+          if (info?.id) ids.add(info.id)
+        })
+      }
+
+      mutations.forEach((mutation) => {
+        Array.from(mutation.removedNodes).forEach((node) => {
+          if (node instanceof Element) {
+            inspectElement(node)
+          } else if (node instanceof CharacterData) {
+            inspectElement(node.parentElement)
+          }
+        })
+      })
+
+      return Array.from(ids)
     }
 
     const isConversationListMutation = (mutations: MutationRecord[]): boolean => {
@@ -577,11 +624,17 @@ export class ConversationManager {
 
       return mutations.some((mutation) => {
         if (matchesConversationSelector(mutation.target)) return true
-        return Array.from(mutation.addedNodes).some(matchesConversationSelector)
+        return (
+          Array.from(mutation.addedNodes).some(matchesConversationSelector) ||
+          Array.from(mutation.removedNodes).some(matchesConversationSelector)
+        )
       })
     }
 
     const observer = new MutationObserver((mutations) => {
+      collectRemovedConversationIds(mutations).forEach((id) => {
+        pendingRemovedConversationIds.add(id)
+      })
       if (isConversationListMutation(mutations)) {
         scheduleSync()
       }
@@ -606,8 +659,45 @@ export class ConversationManager {
     this.sidebarMutationSyncStop = () => {
       if (syncTimer) clearTimeout(syncTimer)
       syncTimer = null
+      pendingRemovedConversationIds.clear()
       observer.disconnect()
     }
+  }
+
+  private async syncDeletedConversationsFromRemovedIds(ids: string[]): Promise<number> {
+    if (!this.syncDelete || ids.length === 0) return 0
+
+    const uniqueIds = Array.from(new Set(ids.filter(Boolean)))
+    if (uniqueIds.length === 0) return 0
+
+    try {
+      await this.siteAdapter.loadAllConversations?.()
+    } catch {
+      return 0
+    }
+
+    if (!this.siteAdapter.hasAuthoritativeConversationList()) {
+      return 0
+    }
+
+    const siteIds = new Set(this.siteAdapter.getConversationList().map((item) => item.id))
+    const currentId =
+      this.siteAdapter.getCurrentConversationInfo()?.id || this.siteAdapter.getSessionId()
+    const store = getConversationsStore()
+    let deletedCount = 0
+
+    uniqueIds.forEach((id) => {
+      if (siteIds.has(id) || currentId === id) return
+
+      const existing = this.conversations[id]
+      if (!existing) return
+      if (existing.siteId && existing.siteId !== this.siteAdapter.getSiteId()) return
+
+      store.deleteConversation(id)
+      deletedCount++
+    })
+
+    return deletedCount
   }
 
   private scheduleRemoteConversationSnapshotSync(delayMs: number) {
